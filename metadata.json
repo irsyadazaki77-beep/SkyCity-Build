@@ -1,0 +1,8 @@
+{
+  "name": "Skyline Simulator",
+  "description": "A 2D city building simulation game with resource management and traffic simulation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
