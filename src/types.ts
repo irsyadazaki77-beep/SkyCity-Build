@@ -362,23 +362,20 @@ export interface CompactTileUpdate {
   crime?: number;
 }
 
-export type SimulationCommandType =
-  | 'BUILD_ROAD'
-  | 'BUILD_ZONE'
-  | 'BULLDOZE'
-  | 'TERRAFORM'
-  | 'SET_TAX'
-  | 'SET_POLICY'
-  | 'UNLOCK_REGION'
-  | 'UNLOCK_TECH'
-  | 'LOAD_STATE'
-  | 'CHANGE_SPEED'
-  | 'CLAIM_REWARD';
+export type SimulationCommand =
+  | { type: 'BUILD_ROAD'; payload: { tiles: [number, number][] } }
+  | { type: 'BUILD_ZONE'; payload: { tiles: [number, number][]; type: TileType } }
+  | { type: 'BULLDOZE'; payload: { tiles: [number, number][] } }
+  | { type: 'TERRAFORM'; payload: { tiles: [number, number][]; tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN'; centerElevation?: number } }
+  | { type: 'SET_TAX'; payload: { zoneType?: 'residential' | 'commercial' | 'industrial'; rate?: number; res?: number; com?: number; ind?: number; residential?: number; commercial?: number; industrial?: number } }
+  | { type: 'SET_POLICY'; payload: { policyId: string; active: boolean } }
+  | { type: 'UNLOCK_REGION'; payload: { rx: number; ry: number; cost?: number } }
+  | { type: 'UNLOCK_TECH'; payload: { techId: string; cost: number } }
+  | { type: 'LOAD_STATE'; payload: CityState }
+  | { type: 'CHANGE_SPEED'; payload: { speed: number } }
+  | { type: 'CLAIM_REWARD'; payload: { missionId: string; reward: number } };
 
-export interface SimulationCommand {
-  type: SimulationCommandType;
-  payload?: any;
-}
+export type SimulationCommandType = SimulationCommand['type'];
 
 export interface SimulationTickDelta {
   type: 'TICK_DELTA';

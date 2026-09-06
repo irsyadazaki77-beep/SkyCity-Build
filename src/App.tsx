@@ -398,12 +398,12 @@ export default function App() {
     if (type === TileType.ROAD) {
       dispatchCommand({
         type: 'BUILD_ROAD',
-        payload: { tiles, cost: totalCost },
+        payload: { tiles },
       });
     } else {
       dispatchCommand({
         type: 'BUILD_ZONE',
-        payload: { tiles, type, cost: totalCost },
+        payload: { tiles, type },
       });
     }
   }, [dragStart, dragCurrent, activeTool, gameState, getDragPreviewTiles, calculateTotalCost, validateTilePlacement, addSystemNotification, dispatchCommand]);
@@ -411,7 +411,7 @@ export default function App() {
   const applyBulldoze = useCallback((x: number, y: number) => {
     dispatchCommand({
       type: 'BULLDOZE',
-      payload: { tiles: [[x, y]], cost: 0 },
+      payload: { tiles: [[x, y]] },
     });
   }, [dispatchCommand]);
 
@@ -431,12 +431,12 @@ export default function App() {
       if (type === TileType.ROAD) {
         dispatchCommand({
           type: 'BUILD_ROAD',
-          payload: { tiles: [[x, y]], cost },
+          payload: { tiles: [[x, y]] },
         });
       } else {
         dispatchCommand({
           type: 'BUILD_ZONE',
-          payload: { tiles: [[x, y]], type, cost },
+          payload: { tiles: [[x, y]], type },
         });
       }
     },
@@ -444,7 +444,7 @@ export default function App() {
   );
 
   const applyTerraforming = useCallback(
-    (cx: number, cy: number, tool: string) => {
+    (cx: number, cy: number, tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN') => {
       const tiles: [number, number][] = [];
       const radius = brushSize - 1;
       for (let dy = -radius; dy <= radius; dy++) {
@@ -469,7 +469,6 @@ export default function App() {
         payload: {
           tiles,
           tool,
-          cost: totalCost,
           centerElevation,
         },
       });
@@ -504,7 +503,7 @@ export default function App() {
       }
 
       if (['RAISE_TERRAIN', 'LOWER_TERRAIN', 'LEVEL_TERRAIN', 'SMOOTH_TERRAIN'].includes(activeTool as any)) {
-        applyTerraforming(x, y, activeTool as string);
+        applyTerraforming(x, y, activeTool as 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN');
         return;
       }
 

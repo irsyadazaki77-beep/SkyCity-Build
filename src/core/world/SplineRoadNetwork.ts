@@ -169,71 +169,103 @@ export class SplineRoadNetwork {
       }
 
       // -------------------------------------------------------------
-      // 3. CURBS & SIDEWALKS (Placed only where there is NO road arm)
+      // 3. CURBS & SIDEWALKS (Placed where there is NO connecting road arm)
       // -------------------------------------------------------------
       if (!isWater) {
-        const curbThick = 0.07;
+        const curbThick = 0.08;
         const curbHeight = 0.05;
+        const sidewalkWidth = 0.22;
 
-        // North edge curb
+        // North edge curb & sidewalk slab
         if (!nN) {
           const cN = new THREE.BoxGeometry(roadWidth, curbHeight, curbThick);
-          cN.translate(wx, elevation + 0.03, wz - halfWidth);
+          cN.translate(wx, elevation + 0.025, wz - halfWidth);
           curbGeos.push(cN);
+
+          const swN = new THREE.BoxGeometry(roadWidth, 0.03, sidewalkWidth);
+          swN.translate(wx, elevation + 0.03, wz - halfWidth - sidewalkWidth / 2);
+          curbGeos.push(swN);
         }
-        // South edge curb
+        // South edge curb & sidewalk slab
         if (!nS) {
           const cS = new THREE.BoxGeometry(roadWidth, curbHeight, curbThick);
-          cS.translate(wx, elevation + 0.03, wz + halfWidth);
+          cS.translate(wx, elevation + 0.025, wz + halfWidth);
           curbGeos.push(cS);
+
+          const swS = new THREE.BoxGeometry(roadWidth, 0.03, sidewalkWidth);
+          swS.translate(wx, elevation + 0.03, wz + halfWidth + sidewalkWidth / 2);
+          curbGeos.push(swS);
         }
-        // East edge curb
+        // East edge curb & sidewalk slab
         if (!nE) {
           const cE = new THREE.BoxGeometry(curbThick, curbHeight, roadWidth);
-          cE.translate(wx + halfWidth, elevation + 0.03, wz);
+          cE.translate(wx + halfWidth, elevation + 0.025, wz);
           curbGeos.push(cE);
+
+          const swE = new THREE.BoxGeometry(sidewalkWidth, 0.03, roadWidth);
+          swE.translate(wx + halfWidth + sidewalkWidth / 2, elevation + 0.03, wz);
+          curbGeos.push(swE);
         }
-        // West edge curb
+        // West edge curb & sidewalk slab
         if (!nW) {
           const cW = new THREE.BoxGeometry(curbThick, curbHeight, roadWidth);
-          cW.translate(wx - halfWidth, elevation + 0.03, wz);
+          cW.translate(wx - halfWidth, elevation + 0.025, wz);
           curbGeos.push(cW);
+
+          const swW = new THREE.BoxGeometry(sidewalkWidth, 0.03, roadWidth);
+          swW.translate(wx - halfWidth - sidewalkWidth / 2, elevation + 0.03, wz);
+          curbGeos.push(swW);
         }
       }
 
       // -------------------------------------------------------------
-      // 4. LANE MARKINGS (Continuous & Non-Repeating)
+      // 4. LANE MARKINGS & CROSSWALKS (Zebra stripes & stop bars)
       // -------------------------------------------------------------
       const markY = elevation + 0.025;
       const lineWidth = 0.05;
 
       if (connCount >= 3) {
         // Real 3-way or 4-way INTERSECTION:
-        // Keep center open, place stop bars at incoming arms
-        const barLength = roadWidth * 0.4;
+        // Keep center open, place stop bars + crosswalk zebra stripes at incoming arms
+        const stripeW = 0.08;
+        const stripeL = 0.28;
+        const numStripes = 5;
+
         if (nN) {
-          const bar = new THREE.PlaneGeometry(barLength, 0.08);
-          bar.rotateX(-Math.PI / 2);
-          bar.translate(wx + barLength / 2, markY, wz - halfWidth - 0.02);
-          markingsGeos.push(bar);
+          for (let k = 0; k < numStripes; k++) {
+            const offset = (k - (numStripes - 1) / 2) * (roadWidth / numStripes);
+            const stripe = new THREE.PlaneGeometry(stripeW, stripeL);
+            stripe.rotateX(-Math.PI / 2);
+            stripe.translate(wx + offset, markY, wz - halfWidth - 0.18);
+            markingsGeos.push(stripe);
+          }
         }
         if (nS) {
-          const bar = new THREE.PlaneGeometry(barLength, 0.08);
-          bar.rotateX(-Math.PI / 2);
-          bar.translate(wx - barLength / 2, markY, wz + halfWidth + 0.02);
-          markingsGeos.push(bar);
+          for (let k = 0; k < numStripes; k++) {
+            const offset = (k - (numStripes - 1) / 2) * (roadWidth / numStripes);
+            const stripe = new THREE.PlaneGeometry(stripeW, stripeL);
+            stripe.rotateX(-Math.PI / 2);
+            stripe.translate(wx + offset, markY, wz + halfWidth + 0.18);
+            markingsGeos.push(stripe);
+          }
         }
         if (nE) {
-          const bar = new THREE.PlaneGeometry(0.08, barLength);
-          bar.rotateX(-Math.PI / 2);
-          bar.translate(wx + halfWidth + 0.02, markY, wz + barLength / 2);
-          markingsGeos.push(bar);
+          for (let k = 0; k < numStripes; k++) {
+            const offset = (k - (numStripes - 1) / 2) * (roadWidth / numStripes);
+            const stripe = new THREE.PlaneGeometry(stripeL, stripeW);
+            stripe.rotateX(-Math.PI / 2);
+            stripe.translate(wx + halfWidth + 0.18, markY, wz + offset);
+            markingsGeos.push(stripe);
+          }
         }
         if (nW) {
-          const bar = new THREE.PlaneGeometry(0.08, barLength);
-          bar.rotateX(-Math.PI / 2);
-          bar.translate(wx - halfWidth - 0.02, markY, wz - barLength / 2);
-          markingsGeos.push(bar);
+          for (let k = 0; k < numStripes; k++) {
+            const offset = (k - (numStripes - 1) / 2) * (roadWidth / numStripes);
+            const stripe = new THREE.PlaneGeometry(stripeL, stripeW);
+            stripe.rotateX(-Math.PI / 2);
+            stripe.translate(wx - halfWidth - 0.18, markY, wz + offset);
+            markingsGeos.push(stripe);
+          }
         }
       } else if (connCount === 2) {
         if (nN && nS) {

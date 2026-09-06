@@ -29,7 +29,7 @@ const AsphaltMaterial = () => {
         vNormal = normalize(normalMatrix * normal);
         vec4 worldPos = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPos.xyz;
-        vec4 mvPosition = modelViewMatrix * worldPos;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,

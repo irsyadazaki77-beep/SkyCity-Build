@@ -34,6 +34,7 @@ export const CURRENT_SAVE_VERSION = 3;
 
 class IndexedDBAdapter {
   private dbPromise: Promise<IDBDatabase> | null = null;
+  private memStore: Map<string, SavePayload> = new Map();
 
   private getDB(): Promise<IDBDatabase> {
     if (typeof indexedDB === 'undefined') {
@@ -59,52 +60,62 @@ class IndexedDBAdapter {
   public async setItem(key: string, data: SavePayload): Promise<void> {
     try {
       const db = await this.getDB();
-      return new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
         const req = store.put({ ...data, id: key });
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
-    } catch {
-      localStorage.setItem(LOCAL_STORAGE_PREFIX + key, JSON.stringify(data));
+      return;
+    } catch {}
+    this.memStore.set(key, data);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_PREFIX + key, JSON.stringify(data));
+      } catch {}
     }
   }
 
   public async getItem(key: string): Promise<SavePayload | null> {
     try {
       const db = await this.getDB();
-      return new Promise((resolve, reject) => {
+      const res = await new Promise<SavePayload | null>((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
         const req = store.get(key);
         req.onsuccess = () => resolve(req.result || null);
         req.onerror = () => reject(req.error);
       });
-    } catch {
-      const json = localStorage.getItem(LOCAL_STORAGE_PREFIX + key) || localStorage.getItem('skyline_sim_save_' + key);
-      if (!json) return null;
+      if (res) return res;
+    } catch {}
+    if (this.memStore.has(key)) return this.memStore.get(key)!;
+    if (typeof localStorage !== 'undefined') {
       try {
-        return JSON.parse(json);
-      } catch {
-        return null;
-      }
+        const json = localStorage.getItem(LOCAL_STORAGE_PREFIX + key) || localStorage.getItem('skyline_sim_save_' + key);
+        if (json) return JSON.parse(json);
+      } catch {}
     }
+    return null;
   }
 
   public async deleteItem(key: string): Promise<void> {
     try {
       const db = await this.getDB();
-      return new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
         const req = store.delete(key);
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
-    } catch {
-      localStorage.removeItem(LOCAL_STORAGE_PREFIX + key);
-      localStorage.removeItem('skyline_sim_save_' + key);
+    } catch {}
+    this.memStore.delete(key);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(LOCAL_STORAGE_PREFIX + key);
+        localStorage.removeItem('skyline_sim_save_' + key);
+      } catch {}
     }
   }
 }
@@ -114,8 +125,30 @@ const idb = new IndexedDBAdapter();
 export class SaveManager {
   private static autosaveIndex = 0;
 
+  public static isValidCityState(obj: any): boolean {
+    if (!obj || typeof obj !== 'object') return false;
+    if (typeof obj.money !== 'number') return false;
+    if (typeof obj.population !== 'number') return false;
+    if (typeof obj.day !== 'number') return false;
+    if (!Array.isArray(obj.grid)) return false;
+    
+    // Check some elements of grid to verify structure
+    const grid = obj.grid;
+    if (grid.length === 0 || !Array.isArray(grid[0])) return false;
+    const firstTile = grid[0][0];
+    if (!firstTile || typeof firstTile !== 'object') return false;
+    if (typeof firstTile.x !== 'number' || typeof firstTile.y !== 'number' || typeof firstTile.type !== 'string') return false;
+    
+    return true;
+  }
+
   public static async saveGame(slotId: string, state: CityState, cityName = 'SkyCity Metropolis'): Promise<boolean> {
     try {
+      if (!this.isValidCityState(state)) {
+        console.error('SaveManager: Rejected saving due to invalid state schema');
+        return false;
+      }
+
       const payload: SavePayload = {
         version: CURRENT_SAVE_VERSION,
         id: slotId,
@@ -125,9 +158,20 @@ export class SaveManager {
       };
 
       await idb.setItem(slotId, payload);
-      try {
-        localStorage.setItem(LOCAL_STORAGE_PREFIX + slotId, JSON.stringify(payload));
-      } catch {}
+
+      // Defers synchronous stringification/write to prevent frame drops in active render loop
+      await new Promise<void>((resolve) => {
+        setTimeout(() => {
+          if (typeof localStorage !== 'undefined') {
+            try {
+              localStorage.setItem(LOCAL_STORAGE_PREFIX + slotId, JSON.stringify(payload));
+            } catch (err) {
+              console.warn('LocalStorage save failed:', err);
+            }
+          }
+          resolve();
+        }, 0);
+      });
 
       return true;
     } catch (err) {
@@ -139,17 +183,24 @@ export class SaveManager {
   public static async loadGame(slotId: string): Promise<SavePayload | null> {
     try {
       let data = await idb.getItem(slotId);
-      if (!data) {
-        const fallbackJson = localStorage.getItem(LOCAL_STORAGE_PREFIX + slotId) || localStorage.getItem('skyline_sim_save_' + slotId);
-        if (fallbackJson) {
-          data = JSON.parse(fallbackJson);
-        }
+      if (!data && typeof localStorage !== 'undefined') {
+        try {
+          const fallbackJson = localStorage.getItem(LOCAL_STORAGE_PREFIX + slotId) || localStorage.getItem('skyline_sim_save_' + slotId);
+          if (fallbackJson) {
+            data = JSON.parse(fallbackJson);
+          }
+        } catch {}
       }
 
       if (!data) return null;
 
       if (data.version < CURRENT_SAVE_VERSION) {
         data = this.migrateSaveData(data);
+      }
+
+      if (!this.isValidCityState(data.gameState)) {
+        console.error('SaveManager: Rejected loading due to invalid state schema in save');
+        return null;
       }
 
       return data;
@@ -217,7 +268,7 @@ export class SaveManager {
   public static async importJson(slotId: string, jsonStr: string): Promise<boolean> {
     try {
       const parsed = JSON.parse(jsonStr);
-      if (!parsed.gameState || typeof parsed.gameState.money !== 'number') {
+      if (!parsed.gameState || !this.isValidCityState(parsed.gameState)) {
         return false;
       }
       return await this.saveGame(slotId, parsed.gameState, parsed.cityName || 'Imported Metropolis');
@@ -303,7 +354,7 @@ export function exportSaveJson(slotId: string): string | null {
 export function importSaveJson(slotId: string, jsonStr: string): boolean {
   try {
     const parsed = JSON.parse(jsonStr);
-    if (!parsed.gameState || typeof parsed.gameState.money !== 'number') {
+    if (!parsed.gameState || !SaveManager.isValidCityState(parsed.gameState)) {
       return false;
     }
     saveGame(slotId, parsed.gameState, parsed.cityName || 'Imported City');

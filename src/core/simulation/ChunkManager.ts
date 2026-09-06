@@ -1,4 +1,5 @@
 import { TileData, TileType } from '../../types';
+import { REGION_SIZE } from '../../mapGenerator';
 
 export const CHUNK_SIZE = 12; // 12x12 tiles per chunk
 
@@ -88,7 +89,7 @@ export class ChunkManager {
         }
 
         const id = this.getChunkKey(cx, cy);
-        const regionKey = `${Math.floor(cx / 2)},${Math.floor(cy / 2)}`;
+        const regionKey = `${Math.floor((cx * CHUNK_SIZE) / REGION_SIZE)},${Math.floor((cy * CHUNK_SIZE) / REGION_SIZE)}`;
         const unlocked = unlockedRegions.includes(regionKey) || unlockedRegions.includes(id);
 
         this.chunks.set(id, {
@@ -228,7 +229,7 @@ export class ChunkManager {
   public setRegionUnlocked(rx: number, ry: number, unlocked: boolean): void {
     const regionKey = `${rx},${ry}`;
     for (const chunk of this.chunks.values()) {
-      const cRegionKey = `${Math.floor(chunk.cx / 2)},${Math.floor(chunk.cy / 2)}`;
+      const cRegionKey = `${Math.floor((chunk.cx * CHUNK_SIZE) / REGION_SIZE)},${Math.floor((chunk.cy * CHUNK_SIZE) / REGION_SIZE)}`;
       if (cRegionKey === regionKey || chunk.id === regionKey) {
         chunk.unlocked = unlocked;
         chunk.isDirty = true;

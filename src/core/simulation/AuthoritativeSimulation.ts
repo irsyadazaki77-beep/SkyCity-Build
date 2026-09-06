@@ -66,10 +66,12 @@ export class AuthoritativeSimulation {
     dirtyTerrain: string[];
     dirtyRoads: string[];
     dirtyBuildings: string[];
+    changedTiles: CompactTileUpdate[];
   } {
     const grid = this.state.grid;
     const height = grid.length;
     const width = grid[0]?.length || 0;
+    const changedTiles: CompactTileUpdate[] = [];
 
     switch (cmd.type) {
       case 'BUILD_ROAD': {
@@ -90,6 +92,15 @@ export class AuthoritativeSimulation {
               this.chunkManager.markRoadDirty(x, y);
               cost += roadCost;
               roadsChanged = true;
+              changedTiles.push({
+                x,
+                y,
+                type: TileType.ROAD,
+                level: 1,
+                abandoned: false,
+                population: 0,
+                jobs: 0,
+              });
             }
           }
         }
@@ -123,6 +134,18 @@ export class AuthoritativeSimulation {
               this.chunkManager.markBuildingDirty(x, y);
               cost += zoneCost;
               buildingsChanged = true;
+              changedTiles.push({
+                x,
+                y,
+                type,
+                level: 1,
+                abandoned: false,
+                population: 0,
+                jobs: 0,
+                traffic: 0,
+                powered: false,
+                watered: false,
+              });
             }
           }
         }
@@ -160,6 +183,19 @@ export class AuthoritativeSimulation {
               tile.powered = false;
               tile.watered = false;
               tile.abandoned = false;
+
+              changedTiles.push({
+                x,
+                y,
+                type: TileType.EMPTY,
+                level: 1,
+                population: 0,
+                jobs: 0,
+                traffic: 0,
+                powered: false,
+                watered: false,
+                abandoned: false,
+              });
             }
           }
         }
@@ -225,6 +261,29 @@ export class AuthoritativeSimulation {
             if (tile.elevation !== oldEl || tile.water !== oldWater) {
               terrainChanged = true;
               this.chunkManager.markTerrainDirty(tx, ty, true);
+
+              // Sync roads & buildings with terraforming elevation & water status
+              if (tile.type === TileType.ROAD) {
+                if (tile.water) {
+                  tile.type = TileType.EMPTY;
+                }
+                this.chunkManager.markRoadDirty(tx, ty);
+                this.revisions.roadRevision++;
+              } else if (tile.type !== TileType.EMPTY) {
+                if (tile.water) {
+                  tile.type = TileType.EMPTY;
+                }
+                this.chunkManager.markBuildingDirty(tx, ty);
+                this.revisions.buildingRevision++;
+              }
+
+              changedTiles.push({
+                x: tx,
+                y: ty,
+                elevation: tile.elevation,
+                water: tile.water,
+                type: tile.type,
+              });
             }
           }
         }
@@ -238,10 +297,20 @@ export class AuthoritativeSimulation {
       }
 
       case 'SET_TAX': {
-        const { res, com, ind } = cmd.payload as { res: number; com: number; ind: number };
-        this.state.residentialTaxRate = res;
-        this.state.commercialTaxRate = com;
-        this.state.industrialTaxRate = ind;
+        const payload = cmd.payload as any;
+        if (payload.zoneType && typeof payload.rate === 'number') {
+          if (payload.zoneType === 'residential') this.state.residentialTaxRate = payload.rate;
+          if (payload.zoneType === 'commercial') this.state.commercialTaxRate = payload.rate;
+          if (payload.zoneType === 'industrial') this.state.industrialTaxRate = payload.rate;
+        } else {
+          const { res, com, ind, residential, commercial, industrial } = payload;
+          if (res !== undefined) this.state.residentialTaxRate = res;
+          if (com !== undefined) this.state.commercialTaxRate = com;
+          if (ind !== undefined) this.state.industrialTaxRate = ind;
+          if (residential !== undefined) this.state.residentialTaxRate = residential;
+          if (commercial !== undefined) this.state.commercialTaxRate = commercial;
+          if (industrial !== undefined) this.state.industrialTaxRate = industrial;
+        }
         this.revisions.simulationStatsRevision++;
         break;
       }
@@ -260,13 +329,27 @@ export class AuthoritativeSimulation {
       }
 
       case 'UNLOCK_REGION': {
-        const { rx, ry } = cmd.payload as { rx: number; ry: number };
+        const { rx, ry, cost = 15000 } = cmd.payload as { rx: number; ry: number; cost?: number };
         const regKey = `${rx},${ry}`;
         const unlocked = this.state.unlockedRegions || [];
         if (!unlocked.includes(regKey)) {
-          this.state.unlockedRegions = [...unlocked, regKey];
-          this.chunkManager.setRegionUnlocked(rx, ry, true);
-          this.revisions.terrainRevision++;
+          if (this.state.money >= cost) {
+            this.state.money -= cost;
+            this.state.unlockedRegions = [...unlocked, regKey];
+            this.chunkManager.setRegionUnlocked(rx, ry, true);
+            this.revisions.terrainRevision++;
+            this.revisions.simulationStatsRevision++;
+          }
+        }
+        break;
+      }
+
+      case 'CLAIM_REWARD': {
+        const { missionId, reward } = cmd.payload as { missionId: string; reward: number };
+        const completed = this.state.completedMissions || [];
+        if (!completed.includes(missionId)) {
+          this.state.completedMissions = [...completed, missionId];
+          this.state.money += reward;
           this.revisions.simulationStatsRevision++;
         }
         break;
@@ -300,6 +383,7 @@ export class AuthoritativeSimulation {
       dirtyTerrain: dirty.terrain,
       dirtyRoads: dirty.roads,
       dirtyBuildings: dirty.buildings,
+      changedTiles,
     };
   }
 

@@ -144,20 +144,50 @@ export function useSimulationController(initialState: CityState): SimulationCont
 
           isBusyRef.current = false;
         } else if (data.type === 'COMMAND_RESULT') {
-          if (data.stats) {
-            setGameState((prev) => ({ ...prev, ...data.stats }));
-          }
+          // Sync changed tiles authoritatively from worker command execution
+          setGameState((prev) => {
+            if (data.changedTiles && data.changedTiles.length > 0) {
+              for (const update of data.changedTiles) {
+                const t = prev.grid[update.y]?.[update.x];
+                if (t) {
+                  if (update.type !== undefined) t.type = update.type;
+                  if (update.level !== undefined) t.level = update.level;
+                  if (update.abandoned !== undefined) t.abandoned = update.abandoned;
+                  if (update.powered !== undefined) t.powered = update.powered;
+                  if (update.watered !== undefined) t.watered = update.watered;
+                  if (update.population !== undefined) t.population = update.population;
+                  if (update.jobs !== undefined) t.jobs = update.jobs;
+                  if (update.elevation !== undefined) t.elevation = update.elevation;
+                  if (update.water !== undefined) t.water = update.water;
+                }
+              }
+            }
+            if (data.stats) {
+              return { ...prev, ...data.stats };
+            }
+            return { ...prev };
+          });
+
           if (data.revisions) {
             setRevisions(data.revisions);
           }
-          if (data.dirtyTerrain && data.dirtyTerrain.length > 0) {
-            setDirtyTerrainChunks((prev) => new Set([...prev, ...data.dirtyTerrain]));
-          }
-          if (data.dirtyRoads && data.dirtyRoads.length > 0) {
-            setDirtyRoadChunks((prev) => new Set([...prev, ...data.dirtyRoads]));
-          }
-          if (data.dirtyBuildings && data.dirtyBuildings.length > 0) {
-            setDirtyBuildingChunks((prev) => new Set([...prev, ...data.dirtyBuildings]));
+
+          if (data.commandType === 'LOAD_STATE') {
+            setDirtyTerrainChunks(new Set(['all']));
+            setDirtyRoadChunks(new Set(['all']));
+            setDirtyBuildingChunks(new Set(['all']));
+            setActiveVehicles([]);
+            setActivePedestrians([]);
+          } else {
+            if (data.dirtyTerrain && data.dirtyTerrain.length > 0) {
+              setDirtyTerrainChunks((prev) => new Set([...prev, ...data.dirtyTerrain]));
+            }
+            if (data.dirtyRoads && data.dirtyRoads.length > 0) {
+              setDirtyRoadChunks((prev) => new Set([...prev, ...data.dirtyRoads]));
+            }
+            if (data.dirtyBuildings && data.dirtyBuildings.length > 0) {
+              setDirtyBuildingChunks((prev) => new Set([...prev, ...data.dirtyBuildings]));
+            }
           }
         }
       };
@@ -236,6 +266,16 @@ export function useSimulationController(initialState: CityState): SimulationCont
             }
           }
         }
+      } else if (cmd.type === 'LOAD_STATE') {
+        const loadedState = cmd.payload;
+        setGameState({ ...loadedState });
+        setDirtyTerrainChunks(new Set(['all']));
+        setDirtyRoadChunks(new Set(['all']));
+        setDirtyBuildingChunks(new Set(['all']));
+        setActiveVehicles([]);
+        setActivePedestrians([]);
+      } else if (cmd.type === 'CHANGE_SPEED') {
+        setSpeed(cmd.payload.speed);
       }
 
       if (workerRef.current && isWorkerActive) {
@@ -247,14 +287,22 @@ export function useSimulationController(initialState: CityState): SimulationCont
         const res = fallbackSimRef.current.executeCommand(cmd);
         setGameState({ ...fallbackSimRef.current.getState() });
         setRevisions(res.revisions);
-        if (res.dirtyTerrain.length > 0) {
-          setDirtyTerrainChunks((prev) => new Set([...prev, ...res.dirtyTerrain]));
-        }
-        if (res.dirtyRoads.length > 0) {
-          setDirtyRoadChunks((prev) => new Set([...prev, ...res.dirtyRoads]));
-        }
-        if (res.dirtyBuildings.length > 0) {
-          setDirtyBuildingChunks((prev) => new Set([...prev, ...res.dirtyBuildings]));
+        if (cmd.type === 'LOAD_STATE') {
+          setDirtyTerrainChunks(new Set(['all']));
+          setDirtyRoadChunks(new Set(['all']));
+          setDirtyBuildingChunks(new Set(['all']));
+          setActiveVehicles([]);
+          setActivePedestrians([]);
+        } else {
+          if (res.dirtyTerrain.length > 0) {
+            setDirtyTerrainChunks((prev) => new Set([...prev, ...res.dirtyTerrain]));
+          }
+          if (res.dirtyRoads.length > 0) {
+            setDirtyRoadChunks((prev) => new Set([...prev, ...res.dirtyRoads]));
+          }
+          if (res.dirtyBuildings.length > 0) {
+            setDirtyBuildingChunks((prev) => new Set([...prev, ...res.dirtyBuildings]));
+          }
         }
       }
     },

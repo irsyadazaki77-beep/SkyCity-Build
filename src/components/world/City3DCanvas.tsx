@@ -193,7 +193,7 @@ function City3DCanvasBase({
         />
 
         {/* Vegetation */}
-        <EnvironmentProps grid={grid} graphicsQuality={graphicsQuality} showInvalidVegetation={showInvalidVegetation} />
+        <EnvironmentProps grid={grid} graphicsQuality={graphicsQuality} showInvalidVegetation={showInvalidVegetation} revision={revisions.terrainRevision + revisions.roadRevision + revisions.buildingRevision} />
 
         {/* Traffic */}
         <InstancedVehicleRenderer

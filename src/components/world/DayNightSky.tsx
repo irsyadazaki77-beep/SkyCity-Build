@@ -89,6 +89,7 @@ const SKY_FRAGMENT_SHADER = `
 export function DayNightSky({ day, speed }: DayNightSkyProps) {
   const sunRef = useRef<THREE.DirectionalLight>(null);
   const skyRef = useRef<THREE.ShaderMaterial>(null);
+  const skyMeshRef = useRef<THREE.Mesh>(null);
   const timeRef = useRef<number>(0.3); // Start at morning/daylight (0.3)
 
   const skyUniforms = useMemo(() => ({
@@ -100,6 +101,10 @@ export function DayNightSky({ day, speed }: DayNightSkyProps) {
   const { gl } = useThree();
 
   useFrame((state, delta) => {
+    if (skyMeshRef.current) {
+      skyMeshRef.current.position.copy(state.camera.position);
+    }
+
     if (speed > 0) {
       const cycleRate = speed === 2 ? 0.05 : 0.02;
       timeRef.current = (timeRef.current + delta * cycleRate) % 1.0;
@@ -108,17 +113,19 @@ export function DayNightSky({ day, speed }: DayNightSkyProps) {
     const t = timeRef.current;
     const sunAngle = (t - 0.25) * Math.PI * 2;
     
-    // Sun position calculation
-    const sunX = Math.cos(sunAngle) * 50;
-    const sunY = Math.sin(sunAngle) * 50;
-    const sunZ = Math.sin(sunAngle * 0.5) * 20 + 10;
+    // Sun position calculation relative to camera center
+    const camX = state.camera.position.x;
+    const camZ = state.camera.position.z;
+
+    const sunX = Math.cos(sunAngle) * 60;
+    const sunY = Math.sin(sunAngle) * 60;
+    const sunZ = Math.sin(sunAngle * 0.5) * 30 + 15;
     
     const sunDir = new THREE.Vector3(sunX, sunY, sunZ).normalize();
     GraphicsState.uniforms.uSunDirection.value.copy(sunDir);
     GraphicsState.uniforms.uTime.value = state.clock.elapsedTime;
 
     // Night factor (0 = day, 1 = night)
-    // Smooth transition between day and night
     const nightFactor = THREE.MathUtils.smoothstep(-sunDir.y, -0.2, 0.3);
     GraphicsState.uniforms.uNightFactor.value = nightFactor;
 
@@ -142,7 +149,9 @@ export function DayNightSky({ day, speed }: DayNightSkyProps) {
     }
 
     if (sunRef.current) {
-      sunRef.current.position.set(sunX, Math.max(1, sunY), sunZ);
+      sunRef.current.position.set(camX + sunX, Math.max(10, sunY + 20), camZ + sunZ);
+      sunRef.current.target.position.set(camX, 0, camZ);
+      sunRef.current.target.updateMatrixWorld();
       
       if (sunY > -5) {
         // Sun Light
@@ -175,8 +184,8 @@ export function DayNightSky({ day, speed }: DayNightSkyProps) {
 
   return (
     <>
-      {/* Procedural Sky Dome */}
-      <mesh scale={[500, 500, 500]}>
+      {/* Procedural Sky Dome centered on camera */}
+      <mesh ref={skyMeshRef} scale={[500, 500, 500]}>
         <sphereGeometry args={[1, 32, 32]} />
         <shaderMaterial
           ref={skyRef}

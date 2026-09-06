@@ -36,6 +36,8 @@ export function createEmptyGrid(width = 60, height = 60): TileData[][] {
     roughness: 0.5,
     waterAmount: 0.4,
     treeDensity: 0.5,
+    width,
+    height,
   });
 }
 

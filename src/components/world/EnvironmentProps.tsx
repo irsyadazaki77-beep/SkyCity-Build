@@ -1,13 +1,16 @@
 import React, { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { TileData, TileType, GraphicsQualityTier } from '../../types';
-import { gridToWorld } from './types3D';
+import { gridToWorld, TILE_SIZE } from './types3D';
 import { TerrainMeshGenerator } from '../../core/world/TerrainMesh';
+import { TreeMaterial } from '../../rendering/CustomMaterials';
+import { GraphicsState } from '../../rendering/GraphicsState';
 
 interface EnvironmentPropsProps {
   grid: TileData[][];
   graphicsQuality?: GraphicsQualityTier;
   showInvalidVegetation?: boolean;
+  revision?: number;
 }
 
 interface TreeInstance {
@@ -16,7 +19,6 @@ interface TreeInstance {
   z: number;
   scale: number;
   rotation: number;
-  archetype: 'pine' | 'oak' | 'bush';
 }
 
 interface RockInstance {
@@ -29,6 +31,13 @@ interface RockInstance {
   rz: number;
 }
 
+interface StreetPropInstance {
+  x: number;
+  y: number;
+  z: number;
+  rotation: number;
+}
+
 // Quick LCG for stable seeded randomness
 function getSeededRandom(seed: number) {
   let s = seed;
@@ -38,18 +47,71 @@ function getSeededRandom(seed: number) {
   };
 }
 
-export function EnvironmentProps({ grid, graphicsQuality = 'high' }: EnvironmentPropsProps) {
+export function EnvironmentProps({ grid, graphicsQuality = 'high', revision = 0 }: EnvironmentPropsProps) {
   const height = grid.length;
   const width = grid[0]?.length || 0;
 
-  // Generate clustered tree groves & natural rock clusters
-  const { pineTrees, oakTrees, bushes, rocks } = useMemo(() => {
+  // Generate clustered tree groves, natural rock clusters, street lamps & benches
+  const { pineTrees, oakTrees, bushes, rocks, streetLamps, benches } = useMemo(() => {
     const pines: TreeInstance[] = [];
     const oaks: TreeInstance[] = [];
     const bushList: TreeInstance[] = [];
     const rockList: RockInstance[] = [];
+    const lamps: StreetPropInstance[] = [];
+    const benchList: StreetPropInstance[] = [];
 
-    // 1. Organic Clusters on Forest Resource Tiles & Natural Mountain/Park Zones
+    const isRoad = (gx: number, gy: number) => {
+      if (gx < 0 || gx >= width || gy < 0 || gy >= height) return false;
+      return grid[gy]?.[gx]?.type === TileType.ROAD;
+    };
+
+    const getTerrainHeight = (wx: number, wz: number): number => {
+      const offsetX = -(width * TILE_SIZE) / 2 + TILE_SIZE / 2;
+      const offsetZ = -(height * TILE_SIZE) / 2 + TILE_SIZE / 2;
+      const gx = (wx - offsetX) / TILE_SIZE;
+      const gy = (wz - offsetZ) / TILE_SIZE;
+      return TerrainMeshGenerator.sampleTerrain(grid, gx, gy, width, height).height;
+    };
+
+    // 1. Street Props & Sidewalk Lighting on Road Tiles
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const tile = grid[y][x];
+        const [wx, , wz] = gridToWorld(x, y, width, height);
+
+        if (tile.type === TileType.ROAD && !tile.water) {
+          // Place Street Lamps at every second road tile along edge
+          if ((x + y) % 2 === 0) {
+            const hasNorth = isRoad(x, y - 1);
+            const hasEast = isRoad(x + 1, y);
+
+            if (!hasNorth) {
+              const lampZ = wz - TILE_SIZE * 0.38;
+              const lampY = getTerrainHeight(wx, lampZ);
+              lamps.push({ x: wx, y: lampY + 0.02, z: lampZ, rotation: 0 });
+            } else if (!hasEast) {
+              const lampX = wx + TILE_SIZE * 0.38;
+              const lampY = getTerrainHeight(lampX, wz);
+              lamps.push({ x: lampX, y: lampY + 0.02, z: wz, rotation: Math.PI / 2 });
+            }
+          }
+
+          // Benches along commercial & residential sidewalks
+          if ((x * 7 + y * 13) % 5 === 0) {
+            const benchX = wx + TILE_SIZE * 0.36;
+            const benchY = getTerrainHeight(benchX, wz);
+            benchList.push({
+              x: benchX,
+              y: benchY + 0.02,
+              z: wz,
+              rotation: Math.PI / 2,
+            });
+          }
+        }
+      }
+    }
+
+    // 2. Organic Clusters on Forest Resource Tiles & Natural Mountain/Park Zones
     for (let y = 1; y < height - 1; y += 2) {
       for (let x = 1; x < width - 1; x += 2) {
         const tile = grid[y][x];
@@ -74,8 +136,6 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high' }: Environment
             const [wx, , wz] = gridToWorld(gx, gy, width, height);
             const sample = TerrainMeshGenerator.sampleTerrain(grid, gx, gy, width, height);
 
-            // Water Masking & Footprint check:
-            // Reject if waterWeight > 0.05 OR height < 0.03 (submerged or shoreline)
             const targetTile = grid[Math.floor(gy)]?.[Math.floor(gx)];
             if (sample.waterWeight > 0.05 || sample.height < 0.03 || targetTile?.water || targetTile?.type !== TileType.EMPTY) {
               continue;
@@ -88,7 +148,6 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high' }: Environment
               x: wx, y: groundY, z: wz,
               scale: 0.6 + rnd() * 0.6,
               rotation: rnd() * Math.PI * 2,
-              archetype: arch,
             };
             if (arch === 'pine') pines.push(treeData);
             else if (arch === 'oak') oaks.push(treeData);
@@ -116,55 +175,19 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high' }: Environment
       }
     }
 
-    return { pineTrees: pines, oakTrees: oaks, bushes: bushList, rocks: rockList };
-  }, [grid, width, height, graphicsQuality]);
+    return { pineTrees: pines, oakTrees: oaks, bushes: bushList, rocks: rockList, streetLamps: lamps, benches: benchList };
+  }, [grid, width, height, graphicsQuality, revision]);
 
   // Archetype Geometries & Materials
-  const trunkGeo = useMemo(() => {
-    const geo = new THREE.CylinderGeometry(0.04, 0.08, 0.5, 5);
-    geo.translate(0, 0.25, 0);
-    return geo;
-  }, []);
-  
   const pineGeo = useMemo(() => {
-    // Stacked cones for a stylized pine
-    const c1 = new THREE.ConeGeometry(0.25, 0.6, 6);
-    c1.translate(0, 0.4, 0);
-    const c2 = new THREE.ConeGeometry(0.2, 0.5, 6);
-    c2.translate(0, 0.7, 0);
-    const c3 = new THREE.ConeGeometry(0.15, 0.4, 6);
-    c3.translate(0, 1.0, 0);
-    
-    // In a real app we'd use BufferGeometryUtils.mergeGeometries, but since we 
-    // are strictly avoiding extra dependency issues, we'll keep it to one cone 
-    // or manually build it if we had the util. We can just use one better proportioned cone 
-    // with some noise, or stick to a single stylized cone for performance.
-    // Let's use a stylized lower-poly cone but better proportioned:
-    const geo = new THREE.ConeGeometry(0.3, 1.1, 5);
+    const geo = new THREE.ConeGeometry(0.3, 1.1, 6);
     geo.translate(0, 0.55, 0);
-    
-    // Add a bit of jitter to vertices to make it organic
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      if (pos.getY(i) < 0.6) {
-        pos.setX(i, pos.getX(i) * (1.0 + (Math.random() - 0.5) * 0.1));
-        pos.setZ(i, pos.getZ(i) * (1.0 + (Math.random() - 0.5) * 0.1));
-      }
-    }
-    geo.computeVertexNormals();
     return geo;
   }, []);
 
   const oakGeo = useMemo(() => {
-    // A more stylized canopy
     const geo = new THREE.IcosahedronGeometry(0.4, 1);
     geo.translate(0, 0.5, 0);
-    // Jitter
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      pos.setY(i, pos.getY(i) + (Math.random() - 0.5) * 0.05);
-    }
-    geo.computeVertexNormals();
     return geo;
   }, []);
 
@@ -173,32 +196,108 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high' }: Environment
     geo.translate(0, 0.1, 0);
     return geo;
   }, []);
-  
+
   const rockGeo = useMemo(() => {
     const geo = new THREE.DodecahedronGeometry(0.6, 0);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
-      pos.setY(i, pos.getY(i) * 0.6); // Flatten rocks
+      pos.setY(i, pos.getY(i) * 0.6);
     }
     geo.computeVertexNormals();
     return geo;
   }, []);
 
-  const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#452a18', roughness: 0.9 }), []);
-  const pineMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#14532d', roughness: 0.8 }), []);
-  const oakMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#166534', roughness: 0.75 }), []);
-  const bushMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#15803d', roughness: 0.8 }), []);
+  // Street Lamp Model (Pole + Overhang + Emissive Bulb)
+  const lampPoleGeo = useMemo(() => {
+    const pole = new THREE.CylinderGeometry(0.02, 0.03, 0.6, 6);
+    pole.translate(0, 0.3, 0);
+
+    const arm = new THREE.BoxGeometry(0.15, 0.02, 0.02);
+    arm.translate(0.06, 0.58, 0);
+
+    // Merge pole + arm
+    const merged = new THREE.BufferGeometry();
+    const posP = pole.attributes.position;
+    const posA = arm.attributes.position;
+    const totalCount = posP.count + posA.count;
+    const posArray = new Float32Array(totalCount * 3);
+
+    for (let i = 0; i < posP.count; i++) {
+      posArray[i * 3 + 0] = posP.getX(i);
+      posArray[i * 3 + 1] = posP.getY(i);
+      posArray[i * 3 + 2] = posP.getZ(i);
+    }
+    for (let i = 0; i < posA.count; i++) {
+      posArray[(posP.count + i) * 3 + 0] = posA.getX(i);
+      posArray[(posP.count + i) * 3 + 1] = posA.getY(i);
+      posArray[(posP.count + i) * 3 + 2] = posA.getZ(i);
+    }
+    merged.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    merged.computeVertexNormals();
+    return merged;
+  }, []);
+
+  const lampBulbGeo = useMemo(() => {
+    const bulb = new THREE.BoxGeometry(0.05, 0.03, 0.05);
+    bulb.translate(0.12, 0.56, 0);
+    return bulb;
+  }, []);
+
+  const benchGeo = useMemo(() => {
+    const b = new THREE.BoxGeometry(0.25, 0.08, 0.1);
+    b.translate(0, 0.04, 0);
+    return b;
+  }, []);
+
+  // Custom Shader Materials with Wind Sway & Night Emissive Light
+  const pineMat = useMemo(() => TreeMaterial('#14532d', 0.8), []);
+  const oakMat = useMemo(() => TreeMaterial('#166534', 0.75), []);
+  const bushMat = useMemo(() => TreeMaterial('#15803d', 0.8), []);
   const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#4b5563', roughness: 0.9 }), []);
+
+  const lampPoleMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.5, metalness: 0.8 }), []);
+
+  // Emissive Lamp Shader Material (Glows softly at night for bloom without point lights)
+  const lampBulbMat = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uNightFactor: GraphicsState.uniforms.uNightFactor,
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * modelViewMatrix * worldPos;
+        }
+      `,
+      fragmentShader: `
+        uniform float uNightFactor;
+        void main() {
+          vec3 offColor = vec3(0.8, 0.8, 0.7);
+          vec3 glowColor = vec3(1.0, 0.92, 0.65) * 2.8;
+          vec3 finalColor = mix(offColor, glowColor, uNightFactor);
+          gl_FragColor = vec4(finalColor, 1.0);
+        }
+      `,
+    });
+  }, []);
+
+  const benchMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.8 }), []);
 
   const refs = {
     pine: useRef<THREE.InstancedMesh>(null),
     oak: useRef<THREE.InstancedMesh>(null),
     bush: useRef<THREE.InstancedMesh>(null),
     rock: useRef<THREE.InstancedMesh>(null),
+    lampPole: useRef<THREE.InstancedMesh>(null),
+    lampBulb: useRef<THREE.InstancedMesh>(null),
+    bench: useRef<THREE.InstancedMesh>(null),
   };
 
   useEffect(() => {
     const tempM = new THREE.Matrix4();
+
     const updateMesh = (mesh: THREE.InstancedMesh | null, data: any[], yOffset: number = 0) => {
       if (!mesh) return;
       data.forEach((d, i) => {
@@ -206,11 +305,12 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high' }: Environment
         const rot = new THREE.Quaternion();
         if (d.rx !== undefined) rot.setFromEuler(new THREE.Euler(d.rx, d.ry, d.rz));
         else rot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), d.rotation || 0);
-        
+
+        const s = d.scale !== undefined ? d.scale : 1.0;
         tempM.compose(
-          new THREE.Vector3(d.x, d.y + yOffset * d.scale, d.z),
+          new THREE.Vector3(d.x, d.y + yOffset * s, d.z),
           rot,
-          new THREE.Vector3(d.scale, d.scale, d.scale)
+          new THREE.Vector3(s, s, s)
         );
         mesh.setMatrixAt(i, tempM);
       });
@@ -222,7 +322,10 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high' }: Environment
     updateMesh(refs.oak.current, oakTrees, 0.1);
     updateMesh(refs.bush.current, bushes, 0.1);
     updateMesh(refs.rock.current, rocks, 0.05);
-  }, [pineTrees, oakTrees, bushes, rocks]);
+    updateMesh(refs.lampPole.current, streetLamps, 0.0);
+    updateMesh(refs.lampBulb.current, streetLamps, 0.0);
+    updateMesh(refs.bench.current, benches, 0.0);
+  }, [pineTrees, oakTrees, bushes, rocks, streetLamps, benches]);
 
   return (
     <group name="Environment">
@@ -238,7 +341,17 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high' }: Environment
       {rocks.length > 0 && (
         <instancedMesh ref={refs.rock} args={[rockGeo, rockMat, rocks.length]} castShadow={graphicsQuality === 'ultra'} receiveShadow />
       )}
+      {streetLamps.length > 0 && (
+        <>
+          <instancedMesh ref={refs.lampPole} args={[lampPoleGeo, lampPoleMat, streetLamps.length]} castShadow />
+          <instancedMesh ref={refs.lampBulb} args={[lampBulbGeo, lampBulbMat, streetLamps.length]} />
+        </>
+      )}
+      {benches.length > 0 && (
+        <instancedMesh ref={refs.bench} args={[benchGeo, benchMat, benches.length]} castShadow />
+      )}
     </group>
   );
 }
+
 

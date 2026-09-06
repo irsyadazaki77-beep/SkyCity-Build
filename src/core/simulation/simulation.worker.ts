@@ -28,6 +28,7 @@ self.onmessage = (e: MessageEvent) => {
       dirtyTerrain: result.dirtyTerrain,
       dirtyRoads: result.dirtyRoads,
       dirtyBuildings: result.dirtyBuildings,
+      changedTiles: result.changedTiles,
       stats: statsDelta,
     });
   } else if (type === 'TICK') {

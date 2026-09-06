@@ -62,6 +62,8 @@ export interface GeneratorParams {
   roughness: number;     // 0 to 1
   waterAmount: number;   // 0 to 1
   treeDensity: number;   // 0 to 1
+  width?: number;
+  height?: number;
 }
 
 export const REGION_SIZE = 20;
@@ -72,21 +74,23 @@ export const WORLD_HEIGHT = REGION_SIZE * REGIONS_Y; // 60
 
 export function generateWorld(params: GeneratorParams): TileData[][] {
   const { seed, preset, roughness, waterAmount, treeDensity } = params;
+  const WORLD_W = params.width || WORLD_WIDTH;
+  const WORLD_H = params.height || WORLD_HEIGHT;
   const n = new SeededNoise(seed);
   const rnd = seededRandom(seed + 42);
 
   const grid: TileData[][] = [];
 
-  for (let y = 0; y < WORLD_HEIGHT; y++) {
+  for (let y = 0; y < WORLD_H; y++) {
     const row: TileData[] = [];
-    for (let x = 0; x < WORLD_WIDTH; x++) {
+    for (let x = 0; x < WORLD_W; x++) {
       // 1. Calculate Base Elevation based on Preset
       let elevation = 0;
       let isWater = false;
       let resource: 'none' | 'fertile' | 'ore' | 'oil' | 'forest' = 'none';
 
-      const nx = x / WORLD_WIDTH;
-      const ny = y / WORLD_HEIGHT;
+      const nx = x / WORLD_W;
+      const ny = y / WORLD_H;
 
       if (preset === 'river_valley') {
         // Flat valley in center (x around 30) with mountains on left/right
@@ -197,19 +201,20 @@ export function generateWorld(params: GeneratorParams): TileData[][] {
     grid.push(row);
   }
 
-  // 3. Construct Outside Connection: Dual Highway running left-to-right at y=30
-  const highwayY = 30;
-  for (let x = 0; x < WORLD_WIDTH; x++) {
-    // Carve elevation and water to make flat highway
-    const t1 = grid[highwayY][x];
-    t1.type = TileType.ROAD;
-    t1.elevation = 1;
-    t1.water = false;
-    t1.powered = true;
-    t1.watered = true;
+  // 3. Construct Outside Connection: Dual Highway running left-to-right at center
+  const highwayY = Math.min(Math.floor(WORLD_H / 2), WORLD_H - 1);
+  for (let x = 0; x < WORLD_W; x++) {
+    if (highwayY < WORLD_H && grid[highwayY] && grid[highwayY][x]) {
+      const t1 = grid[highwayY][x];
+      t1.type = TileType.ROAD;
+      t1.elevation = 1;
+      t1.water = false;
+      t1.powered = true;
+      t1.watered = true;
+    }
 
     // Dual highway has double lanes
-    if (highwayY + 1 < WORLD_HEIGHT) {
+    if (highwayY + 1 < WORLD_H && grid[highwayY + 1] && grid[highwayY + 1][x]) {
       const t2 = grid[highwayY + 1][x];
       t2.type = TileType.ROAD;
       t2.elevation = 1;

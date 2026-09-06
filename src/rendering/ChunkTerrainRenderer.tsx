@@ -182,7 +182,11 @@ export function ChunkTerrainRenderer({
         if (targetLod !== entry.lod) {
           entry.lod = targetLod;
           entry.geometry.dispose();
+          if (entry.waterGeometry) entry.waterGeometry.dispose();
           entry.geometry = TerrainMeshGenerator.generateChunkGeometry(
+            grid, entry.minX, entry.minY, entry.maxX, entry.maxY, width, height, targetLod
+          );
+          entry.waterGeometry = TerrainMeshGenerator.generateChunkWaterGeometry(
             grid, entry.minX, entry.minY, entry.maxX, entry.maxY, width, height, targetLod
           );
           mesh.geometry = entry.geometry;
