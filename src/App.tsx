@@ -28,6 +28,7 @@ import { MilestoneBanner } from './components/MilestoneBanner';
 import { SettingsModal } from './components/ui/SettingsModal';
 import { NotificationCenter, NotificationItem } from './components/ui/NotificationCenter';
 import { DeveloperDebugHUD } from './components/ui/DeveloperDebugHUD';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export function isBuildingUnlocked(type: TileType, milestoneLevel: number): boolean {
   switch (type) {
@@ -155,6 +156,11 @@ export default function App() {
   const [debugChunkBoundaries, setDebugChunkBoundaries] = useState<boolean>(false);
   const [debugTerrainLOD, setDebugTerrainLOD] = useState<boolean>(false);
   const [debugRoadSegments, setDebugRoadSegments] = useState<boolean>(false);
+  const [debugWaterMask, setDebugWaterMask] = useState<boolean>(false);
+  const [debugShorelineContour, setDebugShorelineContour] = useState<boolean>(false);
+  const [debugWaterRegions, setDebugWaterRegions] = useState<boolean>(false);
+  const [debugRoadWaterIntersections, setDebugRoadWaterIntersections] = useState<boolean>(false);
+  const [debugInvalidVegetation, setDebugInvalidVegetation] = useState<boolean>(false);
 
   const prevMilestoneRef = useRef<number>(gameState.milestoneLevel ?? 0);
 
@@ -718,41 +724,61 @@ export default function App() {
         )}
 
         {/* True 3D World Canvas with Revision-Based Incremental Rendering */}
-        <City3DCanvas
-          grid={gameState.grid}
-          revisions={revisions}
-          dirtyTerrainChunks={dirtyTerrainChunks}
-          dirtyRoadChunks={dirtyRoadChunks}
-          dirtyBuildingChunks={dirtyBuildingChunks}
-          day={gameState.day}
-          speed={speed}
-          activeTool={activeTool}
-          activeOverlay={activeOverlay}
-          unlockedRegions={gameState.unlockedRegions}
-          graphicsQuality={graphicsQuality}
-          showChunkBoundaries={debugChunkBoundaries}
-          showTerrainLOD={debugTerrainLOD}
-          showRoadSegments={debugRoadSegments}
-          viewMode={viewMode}
-          zoom={zoom}
-          pitch={pitch}
-          rotation={rotation}
-          mapExpansionMode={mapExpansionMode}
-          brushSize={brushSize}
-          onTileAction={handleTileAction}
-          onTilePointerEnter={handleTilePointerEnter}
-          onUnlockRegion={handleUnlockRegion}
-          onChunkRebuild={incrementTerrainRebuildCount}
-          onRoadRebuild={incrementRoadRebuildCount}
-          onBuildingBatchUpdate={incrementBuildingBatchCount}
-          onVisibleChunksChange={setVisibleChunksCount}
-          dragPreviewTiles={getDragPreviewTiles()}
-          dragPreviewColor={
-            calculateTotalCost(getDragPreviewTiles(), activeTool as TileType) <= gameState.money ? 'green' : 'red'
+        <ErrorBoundary
+          fallback={
+            <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 text-slate-200 p-6">
+              <p className="text-lg font-bold mb-2">3D Viewport Context Lost</p>
+              <p className="text-sm text-slate-400 mb-4">The WebGL graphics context encountered an issue.</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-semibold"
+              >
+                Reload 3D Canvas
+              </button>
+            </div>
           }
-          activeVehicles={activeVehicles}
-          activePedestrians={activePedestrians}
-        />
+        >
+          <City3DCanvas
+            grid={gameState.grid}
+            revisions={revisions}
+            dirtyTerrainChunks={dirtyTerrainChunks}
+            dirtyRoadChunks={dirtyRoadChunks}
+            dirtyBuildingChunks={dirtyBuildingChunks}
+            day={gameState.day}
+            speed={speed}
+            activeTool={activeTool}
+            activeOverlay={activeOverlay}
+            unlockedRegions={gameState.unlockedRegions}
+            graphicsQuality={graphicsQuality}
+            showChunkBoundaries={debugChunkBoundaries}
+            showTerrainLOD={debugTerrainLOD}
+            showRoadSegments={debugRoadSegments}
+            showWaterMask={debugWaterMask}
+            showShorelineContour={debugShorelineContour}
+            showWaterRegions={debugWaterRegions}
+            showRoadWaterIntersections={debugRoadWaterIntersections}
+            showInvalidVegetation={debugInvalidVegetation}
+            viewMode={viewMode}
+            zoom={zoom}
+            pitch={pitch}
+            rotation={rotation}
+            mapExpansionMode={mapExpansionMode}
+            brushSize={brushSize}
+            onTileAction={handleTileAction}
+            onTilePointerEnter={handleTilePointerEnter}
+            onUnlockRegion={handleUnlockRegion}
+            onChunkRebuild={incrementTerrainRebuildCount}
+            onRoadRebuild={incrementRoadRebuildCount}
+            onBuildingBatchUpdate={incrementBuildingBatchCount}
+            onVisibleChunksChange={setVisibleChunksCount}
+            dragPreviewTiles={getDragPreviewTiles()}
+            dragPreviewColor={
+              calculateTotalCost(getDragPreviewTiles(), activeTool as TileType) <= gameState.money ? 'green' : 'red'
+            }
+            activeVehicles={activeVehicles}
+            activePedestrians={activePedestrians}
+          />
+        </ErrorBoundary>
 
         {/* Organized Construction Dock at Bottom */}
         <BottomToolbar
@@ -790,6 +816,16 @@ export default function App() {
           onToggleTerrainLOD={setDebugTerrainLOD}
           showRoadSegments={debugRoadSegments}
           onToggleRoadSegments={setDebugRoadSegments}
+          showWaterMask={debugWaterMask}
+          onToggleWaterMask={setDebugWaterMask}
+          showShorelineContour={debugShorelineContour}
+          onToggleShorelineContour={setDebugShorelineContour}
+          showWaterRegions={debugWaterRegions}
+          onToggleWaterRegions={setDebugWaterRegions}
+          showRoadWaterIntersections={debugRoadWaterIntersections}
+          onToggleRoadWaterIntersections={setDebugRoadWaterIntersections}
+          showInvalidVegetation={debugInvalidVegetation}
+          onToggleInvalidVegetation={setDebugInvalidVegetation}
         />
       </main>
 

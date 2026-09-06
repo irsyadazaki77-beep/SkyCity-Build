@@ -404,6 +404,7 @@ export interface EngineProfilerMetrics {
   simulationTickTime: number;
   renderFrameTime: number;
   drawCalls: number;
+  triangles: number;
   visibleChunks: number;
   fps: number;
 }

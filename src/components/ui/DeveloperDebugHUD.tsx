@@ -25,6 +25,16 @@ interface DeveloperDebugHUDProps {
   onToggleTerrainLOD?: (val: boolean) => void;
   showRoadSegments?: boolean;
   onToggleRoadSegments?: (val: boolean) => void;
+  showWaterMask?: boolean;
+  onToggleWaterMask?: (val: boolean) => void;
+  showShorelineContour?: boolean;
+  onToggleShorelineContour?: (val: boolean) => void;
+  showWaterRegions?: boolean;
+  onToggleWaterRegions?: (val: boolean) => void;
+  showRoadWaterIntersections?: boolean;
+  onToggleRoadWaterIntersections?: (val: boolean) => void;
+  showInvalidVegetation?: boolean;
+  onToggleInvalidVegetation?: (val: boolean) => void;
 }
 
 export function DeveloperDebugHUD({
@@ -46,10 +56,21 @@ export function DeveloperDebugHUD({
   onToggleTerrainLOD,
   showRoadSegments = false,
   onToggleRoadSegments,
+  showWaterMask = false,
+  onToggleWaterMask,
+  showShorelineContour = false,
+  onToggleShorelineContour,
+  showWaterRegions = false,
+  onToggleWaterRegions,
+  showRoadWaterIntersections = false,
+  onToggleRoadWaterIntersections,
+  showInvalidVegetation = false,
+  onToggleInvalidVegetation,
 }: DeveloperDebugHUDProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentFps, setCurrentFps] = useState(60);
   const [frameTimeMs, setFrameTimeMs] = useState(16.6);
+  const [webgl, setWebgl] = useState({ drawCalls: 0, triangles: 0, geometries: 0, textures: 0 });
 
   useEffect(() => {
     let frameCount = 0;
@@ -64,6 +85,11 @@ export function DeveloperDebugHUD({
         const computedFps = Math.round((frameCount * 1000) / delta);
         setCurrentFps(computedFps);
         setFrameTimeMs(parseFloat((1000 / Math.max(1, computedFps)).toFixed(1)));
+        
+        if ((window as any).__WEBGL_METRICS__) {
+          setWebgl({ ...(window as any).__WEBGL_METRICS__ });
+        }
+        
         frameCount = 0;
         lastTime = now;
       }
@@ -204,9 +230,29 @@ export function DeveloperDebugHUD({
 
           <div className="flex justify-between">
             <span className="flex items-center gap-1">
-              <Eye className="w-3 h-3 text-cyan-400" /> Batched Draw Calls:
+              <Eye className="w-3 h-3 text-cyan-400" /> Draw Calls:
             </span>
-            <span className="text-emerald-400 font-bold">~{drawCalls} calls</span>
+            <span className="text-emerald-400 font-bold">{webgl.drawCalls || drawCalls} calls</span>
+          </div>
+
+          <div className="flex justify-between">
+            <span className="flex items-center gap-1">
+              <Layers className="w-3 h-3 text-fuchsia-400" /> Triangles:
+            </span>
+            <span className="text-white font-semibold">
+              {webgl.triangles > 1000000 
+                ? `${(webgl.triangles / 1000000).toFixed(2)}M` 
+                : webgl.triangles > 1000 
+                  ? `${(webgl.triangles / 1000).toFixed(1)}K` 
+                  : webgl.triangles}
+            </span>
+          </div>
+          
+          <div className="flex justify-between">
+            <span className="flex items-center gap-1">
+              <Layers className="w-3 h-3 text-amber-400" /> Geos / Mats:
+            </span>
+            <span className="text-slate-300 font-semibold">{webgl.geometries} / {webgl.textures}</span>
           </div>
 
           <div className="flex justify-between">
@@ -296,6 +342,76 @@ export function DeveloperDebugHUD({
               >
                 <span>Road Splines</span>
                 <span className="font-bold">{showRoadSegments ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+
+            {onToggleWaterMask && (
+              <button
+                onClick={() => onToggleWaterMask(!showWaterMask)}
+                className={`px-2 py-1 rounded text-[10px] text-center border flex flex-col items-center justify-center transition-colors ${
+                  showWaterMask
+                    ? 'bg-blue-900/60 border-blue-500/80 text-blue-300'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>Water Mask</span>
+                <span className="font-bold">{showWaterMask ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+
+            {onToggleShorelineContour && (
+              <button
+                onClick={() => onToggleShorelineContour(!showShorelineContour)}
+                className={`px-2 py-1 rounded text-[10px] text-center border flex flex-col items-center justify-center transition-colors ${
+                  showShorelineContour
+                    ? 'bg-fuchsia-900/60 border-fuchsia-500/80 text-fuchsia-300'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>Shore Contour</span>
+                <span className="font-bold">{showShorelineContour ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+
+            {onToggleWaterRegions && (
+              <button
+                onClick={() => onToggleWaterRegions(!showWaterRegions)}
+                className={`px-2 py-1 rounded text-[10px] text-center border flex flex-col items-center justify-center transition-colors ${
+                  showWaterRegions
+                    ? 'bg-sky-900/60 border-sky-500/80 text-sky-300'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>Water Regions</span>
+                <span className="font-bold">{showWaterRegions ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+
+            {onToggleRoadWaterIntersections && (
+              <button
+                onClick={() => onToggleRoadWaterIntersections(!showRoadWaterIntersections)}
+                className={`px-2 py-1 rounded text-[10px] text-center border flex flex-col items-center justify-center transition-colors ${
+                  showRoadWaterIntersections
+                    ? 'bg-orange-900/60 border-orange-500/80 text-orange-300'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>Bridge Intersects</span>
+                <span className="font-bold">{showRoadWaterIntersections ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+
+            {onToggleInvalidVegetation && (
+              <button
+                onClick={() => onToggleInvalidVegetation(!showInvalidVegetation)}
+                className={`px-2 py-1 rounded text-[10px] text-center border flex flex-col items-center justify-center transition-colors ${
+                  showInvalidVegetation
+                    ? 'bg-rose-900/60 border-rose-500/80 text-rose-300'
+                    : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>Veg Mask Check</span>
+                <span className="font-bold">{showInvalidVegetation ? 'ON' : 'OFF'}</span>
               </button>
             )}
           </div>

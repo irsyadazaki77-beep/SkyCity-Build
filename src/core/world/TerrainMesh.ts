@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { TileData } from '../../types';
 import { TILE_SIZE } from '../../components/world/types3D';
 
+export const WATER_LEVEL = 0.0;
+
 // Palette for procedural slope & elevation blending
 const COLOR_DEEP_BED = new THREE.Color('#0c4a6e');
 const COLOR_SHALLOW_BED = new THREE.Color('#0284c7');
@@ -73,15 +75,17 @@ export class TerrainMeshGenerator {
     const o1 = (1 - fx) * getO(t01) + fx * getO(t11);
     const isOre = (1 - fy) * o0 + fy * o1;
 
-    // Smooth shoreline transition:
-    // When waterWeight > 0.0, the ground organically dips down towards the riverbed (-0.38).
-    // Around waterWeight = 0.4 - 0.6 is the gentle waterline interface.
-    let finalHeight = rawHeight;
+    // Smooth shoreline transition & clear water separation:
+    // Dry land sits at (rawHeight + 0.04) strictly ABOVE WATER_LEVEL (0.0).
+    // Riverbed dips down smoothly to riverbedDepth (-0.38) strictly BELOW WATER_LEVEL (0.0).
+    const landHeight = rawHeight + 0.04;
+    let finalHeight = landHeight;
+
     if (waterWeight > 0.0) {
       const riverbedDepth = -0.38;
       // Smooth Hermite curve for organic riverbank slope
       const smoothW = waterWeight * waterWeight * (3 - 2 * waterWeight);
-      finalHeight = (1 - smoothW) * rawHeight + smoothW * riverbedDepth;
+      finalHeight = (1 - smoothW) * landHeight + smoothW * riverbedDepth;
     }
 
     return {
@@ -143,6 +147,7 @@ export class TerrainMeshGenerator {
     const normals = new Float32Array(numVertices * 3);
     const colors = new Float32Array(numVertices * 3);
     const uvs = new Float32Array(numVertices * 2);
+    const terrainData = new Float32Array(numVertices * 4); // [elevation, slope, waterWeight, resource]
     const indices = new Uint32Array(numQuads * 6);
 
     const tempColor = new THREE.Color();
@@ -154,13 +159,9 @@ export class TerrainMeshGenerator {
       for (let i = 0; i <= segmentsX; i++) {
         const gx = minX + i / subdivPerTile;
 
-        // Sample continuous terrain elevation & features
         const sample = this.sampleTerrain(grid, gx, gy, gridWidth, gridHeight);
         const norm = this.sampleNormal(grid, gx, gy, gridWidth, gridHeight);
 
-        // Convert grid coordinate to world coordinate
-        // Tile (x, y) center is (x - W/2 + 0.5)*TILE_SIZE.
-        // Grid corner (gx, gy) is (gx - W/2)*TILE_SIZE.
         const wx = (gx - gridWidth / 2) * TILE_SIZE;
         const wz = (gy - gridHeight / 2) * TILE_SIZE;
 
@@ -175,40 +176,34 @@ export class TerrainMeshGenerator {
         uvs[uvIdx * 2 + 0] = i / segmentsX;
         uvs[uvIdx * 2 + 1] = j / segmentsY;
 
-        // Slope is how far normal deviates from vertical (0 = flat, 1 = 45 deg, >1 = steep cliff)
         const slope = Math.sqrt(norm.x * norm.x + norm.z * norm.z) / Math.max(0.1, norm.y);
 
-        // Advanced Multi-Layer Biome & Slope Material Blending
+        // Store data for shader
+        terrainData[vIdx * 4 + 0] = sample.height;
+        terrainData[vIdx * 4 + 1] = slope;
+        terrainData[vIdx * 4 + 2] = sample.waterWeight;
+        terrainData[vIdx * 4 + 3] = sample.isForest > 0.5 ? 1.0 : (sample.isOre > 0.5 ? 2.0 : 0.0);
+
+        // Fallback vertex colors (original logic preserved)
         if (sample.waterWeight > 0.75) {
-          // Deep underwater bed
           tempColor.copy(COLOR_DEEP_BED);
         } else if (sample.waterWeight > 0.4) {
-          // Shallow water bed & wet sand shoreline transition
           const t = (sample.waterWeight - 0.4) / 0.35;
           tempColor.copy(COLOR_WET_SAND).lerp(COLOR_SHALLOW_BED, t);
         } else if (sample.height < 0.18) {
-          // Beach / Sand bank
           tempColor.copy(COLOR_DRY_SAND);
         } else if (slope > 0.62) {
-          // Steep cliff rock
           tempColor.copy(COLOR_CLIFF_ROCK);
-          if (sample.height > 2.5) {
-            tempColor.lerp(COLOR_HIGH_ROCK, 0.5);
-          }
+          if (sample.height > 2.5) tempColor.lerp(COLOR_HIGH_ROCK, 0.5);
         } else if (slope > 0.38) {
-          // Dirt / rocky slope
           tempColor.copy(COLOR_DIRT).lerp(COLOR_CLIFF_ROCK, (slope - 0.38) / 0.24);
         } else if (sample.height > 3.4) {
-          // High mountain peaks / alpine snow
           tempColor.copy(COLOR_HIGH_ROCK).lerp(COLOR_SNOW, Math.min(1, (sample.height - 3.4) / 0.8));
         } else if (sample.height > 2.0) {
-          // Highland meadow & earthy rock
           tempColor.copy(COLOR_GRASS_MID).lerp(COLOR_DIRT, Math.min(1, (sample.height - 2.0) / 1.4));
         } else if (sample.isForest > 0.35) {
-          // Rich forest canopy floor
           tempColor.copy(COLOR_FOREST_FLOOR);
         } else {
-          // Lowland lush vibrant grass with elevation gradient
           const grassBlend = Math.min(1, sample.height / 1.5);
           tempColor.copy(COLOR_GRASS_LUSH).lerp(COLOR_GRASS_MID, grassBlend);
         }
@@ -243,7 +238,120 @@ export class TerrainMeshGenerator {
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geometry.setAttribute('aTerrainData', new THREE.BufferAttribute(terrainData, 4));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+
+    return geometry;
+  }
+
+  /**
+   * Generates water surface geometry ONLY for chunk regions that contain water (waterWeight > 0.01).
+   * Returns null if the chunk is completely dry land.
+   */
+  public static generateChunkWaterGeometry(
+    grid: TileData[][],
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number,
+    gridWidth: number,
+    gridHeight: number,
+    lod: number = 0
+  ): THREE.BufferGeometry | null {
+    const subdivPerTile = lod === 0 ? 2 : 1;
+    const tilesX = maxX - minX + 1;
+    const tilesY = maxY - minY + 1;
+
+    const segmentsX = tilesX * subdivPerTile;
+    const segmentsY = tilesY * subdivPerTile;
+
+    const verticesX = segmentsX + 1;
+    const verticesY = segmentsY + 1;
+    const numVertices = verticesX * verticesY;
+
+    // First pass: sample all vertices in the chunk
+    const samples: TerrainSample[] = new Array(numVertices);
+    let maxWaterWeight = 0;
+
+    for (let j = 0; j <= segmentsY; j++) {
+      const gy = minY + j / subdivPerTile;
+      for (let i = 0; i <= segmentsX; i++) {
+        const gx = minX + i / subdivPerTile;
+        const sample = this.sampleTerrain(grid, gx, gy, gridWidth, gridHeight);
+        const idx = j * verticesX + i;
+        samples[idx] = sample;
+        if (sample.waterWeight > maxWaterWeight) {
+          maxWaterWeight = sample.waterWeight;
+        }
+      }
+    }
+
+    // Completely dry chunk: return null (zero draw calls & zero water mesh overhead)
+    if (maxWaterWeight < 0.01) {
+      return null;
+    }
+
+    const positions = new Float32Array(numVertices * 3);
+    const uvs = new Float32Array(numVertices * 2);
+    const waterWeights = new Float32Array(numVertices);
+    const waterDepths = new Float32Array(numVertices);
+
+    let vIdx = 0;
+    for (let j = 0; j <= segmentsY; j++) {
+      const gy = minY + j / subdivPerTile;
+      for (let i = 0; i <= segmentsX; i++) {
+        const gx = minX + i / subdivPerTile;
+        const sample = samples[vIdx];
+
+        const wx = (gx - gridWidth / 2) * TILE_SIZE;
+        const wz = (gy - gridHeight / 2) * TILE_SIZE;
+
+        positions[vIdx * 3 + 0] = wx;
+        positions[vIdx * 3 + 1] = WATER_LEVEL;
+        positions[vIdx * 3 + 2] = wz;
+
+        uvs[vIdx * 2 + 0] = i / segmentsX;
+        uvs[vIdx * 2 + 1] = j / segmentsY;
+
+        waterWeights[vIdx] = sample.waterWeight;
+        waterDepths[vIdx] = Math.max(0, WATER_LEVEL - sample.height);
+
+        vIdx++;
+      }
+    }
+
+    // Only add indices for quads where at least one corner has waterWeight > 0.01
+    const quadIndices: number[] = [];
+    for (let j = 0; j < segmentsY; j++) {
+      for (let i = 0; i < segmentsX; i++) {
+        const r1c1 = j * verticesX + i;
+        const r1c2 = j * verticesX + i + 1;
+        const r2c1 = (j + 1) * verticesX + i;
+        const r2c2 = (j + 1) * verticesX + i + 1;
+
+        const w1 = samples[r1c1].waterWeight;
+        const w2 = samples[r1c2].waterWeight;
+        const w3 = samples[r2c1].waterWeight;
+        const w4 = samples[r2c2].waterWeight;
+
+        if (w1 > 0.01 || w2 > 0.01 || w3 > 0.01 || w4 > 0.01) {
+          quadIndices.push(r1c1, r2c1, r1c2);
+          quadIndices.push(r1c2, r2c1, r2c2);
+        }
+      }
+    }
+
+    if (quadIndices.length === 0) {
+      return null;
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geometry.setAttribute('aWaterWeight', new THREE.BufferAttribute(waterWeights, 1));
+    geometry.setAttribute('aWaterDepth', new THREE.BufferAttribute(waterDepths, 1));
+    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(quadIndices), 1));
+    geometry.computeVertexNormals();
 
     return geometry;
   }

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SimulatedVehicle } from '../types';
@@ -23,6 +23,9 @@ export function InstancedVehicleRenderer({
   nightFactor,
 }: InstancedVehicleRendererProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
+
+  const geo = useMemo(() => new THREE.BoxGeometry(0.12, 0.08, 0.22), []);
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.6 }), []);
 
   useFrame((_, delta) => {
     if (!meshRef.current || vehicles.length === 0) return;
@@ -75,11 +78,8 @@ export function InstancedVehicleRenderer({
   return (
     <instancedMesh
       ref={meshRef}
-      args={[undefined, undefined, Math.max(1, Math.min(vehicles.length, 100))]}
+      args={[geo, mat, Math.max(1, Math.min(vehicles.length, 100))]}
       castShadow
-    >
-      <boxGeometry args={[0.12, 0.08, 0.22]} />
-      <meshStandardMaterial roughness={0.3} metalness={0.6} />
-    </instancedMesh>
+    />
   );
 }

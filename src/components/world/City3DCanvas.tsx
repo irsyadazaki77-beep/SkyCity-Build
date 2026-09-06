@@ -1,6 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useEffect } from 'react';
 import * as THREE from 'three';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
+import { SoftShadows } from '@react-three/drei';
+import { EffectComposer, Bloom, Vignette, BrightnessContrast, HueSaturation } from '@react-three/postprocessing';
 import {
   TileData,
   TileType,
@@ -40,6 +42,11 @@ export interface City3DCanvasProps {
   showChunkBoundaries?: boolean;
   showTerrainLOD?: boolean;
   showRoadSegments?: boolean;
+  showWaterMask?: boolean;
+  showShorelineContour?: boolean;
+  showWaterRegions?: boolean;
+  showRoadWaterIntersections?: boolean;
+  showInvalidVegetation?: boolean;
   onTileAction: (x: number, y: number) => void;
   onTilePointerEnter: (x: number, y: number) => void;
   onUnlockRegion?: (rx: number, ry: number) => void;
@@ -52,6 +59,21 @@ export interface City3DCanvasProps {
   activeVehicles?: SimulatedVehicle[];
   activePedestrians?: SimulatedPedestrian[];
 }
+
+const WebGLProfiler = () => {
+  const { gl } = useThree();
+  
+  useFrame(() => {
+    // Export metrics globally for DeveloperDebugHUD to read
+    (window as any).__WEBGL_METRICS__ = {
+      drawCalls: gl.info.render.calls,
+      triangles: gl.info.render.triangles,
+      geometries: gl.info.memory.geometries,
+      textures: gl.info.memory.textures
+    };
+  });
+  return null;
+};
 
 function City3DCanvasBase({
   grid,
@@ -70,6 +92,11 @@ function City3DCanvasBase({
   showChunkBoundaries = false,
   showTerrainLOD = false,
   showRoadSegments = false,
+  showWaterMask = false,
+  showShorelineContour = false,
+  showWaterRegions = false,
+  showRoadWaterIntersections = false,
+  showInvalidVegetation = false,
   onTileAction,
   onTilePointerEnter,
   onChunkRebuild,
@@ -81,12 +108,6 @@ function City3DCanvasBase({
   activeVehicles = [],
   activePedestrians = [],
 }: City3DCanvasProps) {
-  const [nightFactor, setNightFactor] = useState<number>(0);
-
-  const handleNightFactorChange = useCallback((factor: number) => {
-    setNightFactor(factor);
-  }, []);
-
   const gridWidth = grid[0]?.length || 60;
   const gridHeight = grid.length || 60;
 
@@ -116,8 +137,10 @@ function City3DCanvasBase({
           toneMappingExposure: 1.15,
         }}
       >
+        <WebGLProfiler />
+
         {/* Sky, Sun/Moon & Atmospheric Fog */}
-        <DayNightSky day={day} speed={speed} onNightFactorChange={handleNightFactorChange} />
+        <DayNightSky day={day} speed={speed} />
 
         {/* Camera Position & Orbit Controls */}
         <CameraController
@@ -129,7 +152,7 @@ function City3DCanvasBase({
           gridHeight={gridHeight}
         />
 
-        {/* Batched Chunk Terrain Rendering with Incremental Geometry Caching & LOD */}
+        {/* Batched Chunk Terrain Rendering */}
         <ChunkTerrainRenderer
           grid={grid}
           terrainRevision={revisions.terrainRevision}
@@ -140,6 +163,9 @@ function City3DCanvasBase({
           graphicsQuality={graphicsQuality}
           showChunkBoundaries={showChunkBoundaries}
           showTerrainLOD={showTerrainLOD}
+          showWaterMask={showWaterMask}
+          showShorelineContour={showShorelineContour}
+          showWaterRegions={showWaterRegions}
           onTileClick={onTileAction}
           onTilePointerEnter={onTilePointerEnter}
           onChunkRebuild={onChunkRebuild}
@@ -148,40 +174,54 @@ function City3DCanvasBase({
           dragPreviewColor={dragPreviewColor}
         />
 
-        {/* Procedural Instanced Spline Road Network with Continuous Lanes & Bridges */}
+        {/* Road Network */}
         <SplineRoadRenderer
           grid={grid}
           roadRevision={revisions.roadRevision}
-          nightFactor={nightFactor}
+          nightFactor={0} // Pulled from GraphicsState internally
           showRoadSegments={showRoadSegments}
+          showRoadWaterIntersections={showRoadWaterIntersections}
           onRoadRebuild={onRoadRebuild}
         />
 
-        {/* GPU Instanced Building Rendering (Batched by level and zone type) */}
+        {/* Buildings */}
         <InstancedBuildingRenderer
           grid={grid}
           buildingRevision={revisions.buildingRevision}
-          nightFactor={nightFactor}
+          nightFactor={0} // Pulled from GraphicsState internally
           onBuildingBatchUpdate={onBuildingBatchUpdate}
         />
 
-        {/* Clustered Tree Groves & Rock Formations Anchored to Terrain Surface */}
-        <EnvironmentProps grid={grid} graphicsQuality={graphicsQuality} />
+        {/* Vegetation */}
+        <EnvironmentProps grid={grid} graphicsQuality={graphicsQuality} showInvalidVegetation={showInvalidVegetation} />
 
-        {/* GPU Instanced Traffic Simulation Vehicles */}
+        {/* Traffic */}
         <InstancedVehicleRenderer
           vehicles={activeVehicles}
           gridWidth={gridWidth}
           gridHeight={gridHeight}
-          nightFactor={nightFactor}
+          nightFactor={0} // Pulled from GraphicsState internally
         />
 
-        {/* GPU Instanced Sidewalk Pedestrians */}
         <InstancedPedestrianRenderer
           pedestrians={activePedestrians}
           gridWidth={gridWidth}
           gridHeight={gridHeight}
         />
+
+        {/* Post-processing */}
+        {graphicsQuality !== 'low' && (
+          <EffectComposer multisampling={0}>
+            <Bloom 
+              intensity={0.3} 
+              luminanceThreshold={0.9} 
+              luminanceSmoothing={0.1} 
+            />
+            <HueSaturation saturation={0.08} />
+            <BrightnessContrast brightness={0.0} contrast={0.08} />
+            <Vignette eskil={false} offset={0.1} darkness={0.4} />
+          </EffectComposer>
+        )}
       </Canvas>
     </div>
   );
@@ -204,6 +244,11 @@ export const City3DCanvas = React.memo(City3DCanvasBase, (prev, next) => {
     prev.showChunkBoundaries !== next.showChunkBoundaries ||
     prev.showTerrainLOD !== next.showTerrainLOD ||
     prev.showRoadSegments !== next.showRoadSegments ||
+    prev.showWaterMask !== next.showWaterMask ||
+    prev.showShorelineContour !== next.showShorelineContour ||
+    prev.showWaterRegions !== next.showWaterRegions ||
+    prev.showRoadWaterIntersections !== next.showRoadWaterIntersections ||
+    prev.showInvalidVegetation !== next.showInvalidVegetation ||
     prev.viewMode !== next.viewMode ||
     prev.zoom !== next.zoom ||
     prev.pitch !== next.pitch ||

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SimulatedPedestrian } from '../types';
@@ -20,6 +20,9 @@ export function InstancedPedestrianRenderer({
   gridHeight,
 }: InstancedPedestrianRendererProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
+
+  const geo = useMemo(() => new THREE.CapsuleGeometry(0.02, 0.06, 4, 8), []);
+  const mat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.1 }), []);
 
   useFrame((_, delta) => {
     if (!meshRef.current || pedestrians.length === 0) return;
@@ -57,10 +60,7 @@ export function InstancedPedestrianRenderer({
   return (
     <instancedMesh
       ref={meshRef}
-      args={[undefined, undefined, Math.max(1, Math.min(pedestrians.length, 60))]}
-    >
-      <capsuleGeometry args={[0.02, 0.06, 4, 8]} />
-      <meshStandardMaterial roughness={0.5} metalness={0.1} />
-    </instancedMesh>
+      args={[geo, mat, Math.max(1, Math.min(pedestrians.length, 60))]}
+    />
   );
 }

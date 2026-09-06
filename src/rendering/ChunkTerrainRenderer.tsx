@@ -5,6 +5,8 @@ import { TileData, TileType, OverlayMode, GraphicsQualityTier } from '../types';
 import { TerrainMeshGenerator } from '../core/world/TerrainMesh';
 import { CHUNK_SIZE } from '../core/simulation/ChunkManager';
 import { gridToWorld, worldToGrid, TILE_SIZE } from '../components/world/types3D';
+import { TerrainMaterial, WaterMaterial } from './CustomMaterials';
+import { GraphicsState } from './GraphicsState';
 
 interface ChunkTerrainRendererProps {
   grid: TileData[][];
@@ -16,6 +18,9 @@ interface ChunkTerrainRendererProps {
   graphicsQuality?: GraphicsQualityTier;
   showChunkBoundaries?: boolean;
   showTerrainLOD?: boolean;
+  showWaterMask?: boolean;
+  showShorelineContour?: boolean;
+  showWaterRegions?: boolean;
   onTileClick: (x: number, y: number) => void;
   onTilePointerEnter: (x: number, y: number) => void;
   onChunkRebuild?: (count: number) => void;
@@ -35,6 +40,7 @@ interface ChunkEntry {
   centerWorld: THREE.Vector3;
   box: THREE.Box3;
   geometry: THREE.BufferGeometry;
+  waterGeometry: THREE.BufferGeometry | null;
   lod: number;
 }
 
@@ -48,6 +54,9 @@ export function ChunkTerrainRenderer({
   graphicsQuality = 'high',
   showChunkBoundaries = false,
   showTerrainLOD = false,
+  showWaterMask = false,
+  showShorelineContour = false,
+  showWaterRegions = false,
   onTileClick,
   onTilePointerEnter,
   onChunkRebuild,
@@ -63,34 +72,42 @@ export function ChunkTerrainRenderer({
 
   const [hoverTile, setHoverTile] = useState<[number, number] | null>(null);
 
-  // Chunk geometries cache: id -> ChunkEntry
   const chunkCacheRef = useRef<Map<string, ChunkEntry>>(new Map());
   const [chunkList, setChunkList] = useState<ChunkEntry[]>([]);
   const prevTerrainRevisionRef = useRef<number>(-1);
   const prevQualityRef = useRef<GraphicsQualityTier>(graphicsQuality);
 
-  // Camera frustum for culling
   const meshRefs = useRef<Map<string, THREE.Mesh>>(new Map());
   const frustumRef = useRef(new THREE.Frustum());
   const projScreenMatrixRef = useRef(new THREE.Matrix4());
   const lastVisibleCountRef = useRef(-1);
 
-  // Incremental chunk generation
+  // Materials
+  const terrainMat = useMemo(() => TerrainMaterial(), []);
+  const waterMat = useMemo(() => WaterMaterial(), []);
+
+  // Update debug uniforms on material
+  useEffect(() => {
+    if (terrainMat.uniforms.uShowWaterMask) {
+      terrainMat.uniforms.uShowWaterMask.value = showWaterMask ? 1.0 : 0.0;
+    }
+    if (terrainMat.uniforms.uShowShoreline) {
+      terrainMat.uniforms.uShowShoreline.value = showShorelineContour ? 1.0 : 0.0;
+    }
+  }, [terrainMat, showWaterMask, showShorelineContour]);
+
   useEffect(() => {
     const isFirstRun = prevTerrainRevisionRef.current === -1;
     const revisionChanged = terrainRevision !== prevTerrainRevisionRef.current;
     const qualityChanged = graphicsQuality !== prevQualityRef.current;
 
-    if (!isFirstRun && !revisionChanged && !qualityChanged) {
-      return;
-    }
+    if (!isFirstRun && !revisionChanged && !qualityChanged) return;
 
     prevTerrainRevisionRef.current = terrainRevision;
     prevQualityRef.current = graphicsQuality;
 
     const cache = chunkCacheRef.current;
     let rebuildCount = 0;
-
     const isAllDirty = isFirstRun || !dirtyTerrainChunks || dirtyTerrainChunks.has('all');
 
     for (let cy = 0; cy < chunksY; cy++) {
@@ -116,38 +133,14 @@ export function ChunkTerrainRenderer({
         const shouldRebuild = isAllDirty || dirtyTerrainChunks.has(id) || !existing;
 
         if (shouldRebuild) {
-          if (existing?.geometry) {
-            existing.geometry.dispose();
-          }
+          if (existing?.geometry) existing.geometry.dispose();
+          if (existing?.waterGeometry) existing.waterGeometry.dispose();
+          let lod = graphicsQuality === 'low' ? 1 : 0;
 
-          let lod = 0;
-          if (graphicsQuality === 'low') lod = 1;
+          const geometry = TerrainMeshGenerator.generateChunkGeometry(grid, minX, minY, maxX, maxY, width, height, lod);
+          const waterGeometry = TerrainMeshGenerator.generateChunkWaterGeometry(grid, minX, minY, maxX, maxY, width, height, lod);
 
-          const geometry = TerrainMeshGenerator.generateChunkGeometry(
-            grid,
-            minX,
-            minY,
-            maxX,
-            maxY,
-            width,
-            height,
-            lod
-          );
-
-          cache.set(id, {
-            id,
-            cx,
-            cy,
-            minX,
-            minY,
-            maxX,
-            maxY,
-            centerWorld,
-            box,
-            geometry,
-            lod,
-          });
-
+          cache.set(id, { id, cx, cy, minX, minY, maxX, maxY, centerWorld, box, geometry, waterGeometry, lod });
           rebuildCount++;
         }
       }
@@ -159,7 +152,6 @@ export function ChunkTerrainRenderer({
     }
   }, [grid, terrainRevision, dirtyTerrainChunks, width, height, chunksX, chunksY, graphicsQuality, onChunkRebuild]);
 
-  // Frame-by-frame camera LOD & Frustum Culling
   useFrame(({ camera }) => {
     projScreenMatrixRef.current.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustumRef.current.setFromProjectionMatrix(projScreenMatrixRef.current);
@@ -176,22 +168,22 @@ export function ChunkTerrainRenderer({
       mesh.visible = isVisible;
       if (isVisible) visibleCount++;
 
-      // Adaptive camera LOD: if chunk is within 40 units, use LOD 0. If > 40 units, use LOD 1.
+      // Adaptive camera LOD with Hysteresis
       if (isVisible && graphicsQuality !== 'low') {
         const dist = camPos.distanceTo(entry.centerWorld);
-        const targetLod = dist > 42 ? 1 : 0;
+        
+        // Hysteresis thresholds:
+        // Switch to LOW LOD if dist > 48
+        // Switch to HIGH LOD if dist < 38
+        let targetLod = entry.lod;
+        if (entry.lod === 0 && dist > 48) targetLod = 1;
+        else if (entry.lod === 1 && dist < 38) targetLod = 0;
+
         if (targetLod !== entry.lod) {
           entry.lod = targetLod;
           entry.geometry.dispose();
           entry.geometry = TerrainMeshGenerator.generateChunkGeometry(
-            grid,
-            entry.minX,
-            entry.minY,
-            entry.maxX,
-            entry.maxY,
-            width,
-            height,
-            targetLod
+            grid, entry.minX, entry.minY, entry.maxX, entry.maxY, width, height, targetLod
           );
           mesh.geometry = entry.geometry;
         }
@@ -200,16 +192,13 @@ export function ChunkTerrainRenderer({
 
     if (visibleCount !== lastVisibleCountRef.current) {
       lastVisibleCountRef.current = visibleCount;
-      if (onVisibleChunksChange) {
-        onVisibleChunksChange(visibleCount);
-      }
+      if (onVisibleChunksChange) onVisibleChunksChange(visibleCount);
     }
   });
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
-    const point = e.point;
-    const [gx, gy] = worldToGrid(point.x, point.z, width, height);
+    const [gx, gy] = worldToGrid(e.point.x, e.point.z, width, height);
     if (gx >= 0 && gx < width && gy >= 0 && gy < height) {
       setHoverTile([gx, gy]);
       onTilePointerEnter(gx, gy);
@@ -218,11 +207,8 @@ export function ChunkTerrainRenderer({
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
-    const point = e.point;
-    const [gx, gy] = worldToGrid(point.x, point.z, width, height);
-    if (gx >= 0 && gx < width && gy >= 0 && gy < height) {
-      onTileClick(gx, gy);
-    }
+    const [gx, gy] = worldToGrid(e.point.x, e.point.z, width, height);
+    if (gx >= 0 && gx < width && gy >= 0 && gy < height) onTileClick(gx, gy);
   };
 
   const isTerraforming =
@@ -238,80 +224,40 @@ export function ChunkTerrainRenderer({
     return [wx, el + 0.05, wz] as [number, number, number];
   }, [hoverTile, grid, width, height]);
 
-  const chunkBoundaryHelpers = useMemo(() => {
-    if (!showChunkBoundaries) return [];
-    const helpers: { id: string; position: [number, number, number]; size: [number, number, number] }[] = [];
-
-    for (let cy = 0; cy < chunksY; cy++) {
-      for (let cx = 0; cx < chunksX; cx++) {
-        const minX = cx * CHUNK_SIZE;
-        const minY = cy * CHUNK_SIZE;
-        const maxX = Math.min(width - 1, (cx + 1) * CHUNK_SIZE - 1);
-        const maxY = Math.min(height - 1, (cy + 1) * CHUNK_SIZE - 1);
-
-        const w = (maxX - minX + 1) * TILE_SIZE;
-        const d = (maxY - minY + 1) * TILE_SIZE;
-
-        const cxW = ((minX + maxX + 1) / 2 - width / 2) * TILE_SIZE;
-        const czW = ((minY + maxY + 1) / 2 - height / 2) * TILE_SIZE;
-
-        helpers.push({
-          id: `boundary-${cx}-${cy}`,
-          position: [cxW, 1.5, czW],
-          size: [w, 3.0, d],
-        });
-      }
-    }
-    return helpers;
-  }, [showChunkBoundaries, chunksX, chunksY, width, height]);
-
   return (
     <group name="ChunkTerrain">
       {chunkList.map((chunk) => (
-        <mesh
-          key={chunk.id}
-          ref={(el) => {
-            if (el) meshRefs.current.set(chunk.id, el);
-            else meshRefs.current.delete(chunk.id);
-          }}
-          geometry={chunk.geometry}
-          receiveShadow
-          onPointerMove={handlePointerMove}
-          onClick={handleClick}
-        >
-          <meshStandardMaterial
-            vertexColors
-            roughness={0.82}
-            metalness={0.08}
-            wireframe={showTerrainLOD}
+        <group key={chunk.id}>
+          <mesh
+            ref={(el) => {
+              if (el) meshRefs.current.set(chunk.id, el);
+              else meshRefs.current.delete(chunk.id);
+            }}
+            geometry={chunk.geometry}
+            material={terrainMat}
+            receiveShadow
+            onPointerMove={handlePointerMove}
+            onClick={handleClick}
           />
-        </mesh>
+
+          {/* Region-Masked Water Mesh for this Chunk */}
+          {chunk.waterGeometry && (
+            <mesh
+              geometry={chunk.waterGeometry}
+              material={waterMat}
+              receiveShadow
+            />
+          )}
+
+          {/* Water Region Debug Boundaries */}
+          {showWaterRegions && chunk.waterGeometry && (
+            <lineSegments position={chunk.centerWorld}>
+              <edgesGeometry args={[new THREE.BoxGeometry((chunk.maxX - chunk.minX + 1) * TILE_SIZE, 0.5, (chunk.maxY - chunk.minY + 1) * TILE_SIZE)]} />
+              <lineBasicMaterial color="#0284c7" linewidth={2} />
+            </lineSegments>
+          )}
+        </group>
       ))}
-
-      {/* Batched Unified Water Surface Plane */}
-      <mesh
-        position={[0, 0.0, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        receiveShadow
-      >
-        <planeGeometry args={[width * TILE_SIZE, height * TILE_SIZE]} />
-        <meshStandardMaterial
-          color="#0284c7"
-          roughness={0.08}
-          metalness={0.8}
-          transparent
-          opacity={0.8}
-        />
-      </mesh>
-
-      {/* Debug Chunk Boundary Boxes */}
-      {showChunkBoundaries &&
-        chunkBoundaryHelpers.map((h) => (
-          <mesh key={h.id} position={h.position}>
-            <boxGeometry args={h.size} />
-            <meshBasicMaterial color="#a855f7" wireframe />
-          </mesh>
-        ))}
 
       {/* Terraform Brush Ring Preview */}
       {isTerraforming && cursorWorldPos && (
@@ -319,9 +265,7 @@ export function ChunkTerrainRenderer({
           <ringGeometry args={[brushSize * TILE_SIZE * 0.85, brushSize * TILE_SIZE, 32]} />
           <meshBasicMaterial
             color={activeTool === 'RAISE_TERRAIN' ? '#22c55e' : activeTool === 'LOWER_TERRAIN' ? '#ef4444' : '#3b82f6'}
-            transparent
-            opacity={0.7}
-            side={THREE.DoubleSide}
+            transparent opacity={0.7} side={THREE.DoubleSide}
           />
         </mesh>
       )}
@@ -335,8 +279,7 @@ export function ChunkTerrainRenderer({
             <planeGeometry args={[TILE_SIZE * 0.9, TILE_SIZE * 0.9]} />
             <meshBasicMaterial
               color={dragPreviewColor === 'red' ? '#ef4444' : '#22c55e'}
-              transparent
-              opacity={0.5}
+              transparent opacity={0.5}
             />
           </mesh>
         );

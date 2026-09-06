@@ -69,6 +69,7 @@ export function useSimulationController(initialState: CityState): SimulationCont
     simulationTickTime: 1.5,
     renderFrameTime: 16.6,
     drawCalls: 12,
+    triangles: 0,
     visibleChunks: 25,
     fps: 60,
   });
