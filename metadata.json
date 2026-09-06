@@ -1,6 +1,6 @@
 {
-  "name": "Skyline Simulator",
-  "description": "A 2D city building simulation game with resource management and traffic simulation.",
+  "name": "SkyCity 3D",
+  "description": "Large-scale 3D city simulator with true elevation terrain, spline road network, citizen & company economy, lane-level traffic, and GPU instanced rendering.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

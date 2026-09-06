@@ -57,28 +57,30 @@ export function DayNightSky({ day, speed, onNightFactorChange }: DayNightSkyProp
 
   return (
     <>
-      {/* Directional Sun / Moon Light with Crisp Shadows */}
+      {/* Directional Sun / Moon Light with Crisp, Stable Shadows */}
       <directionalLight
         ref={sunRef}
-        position={[25, 30, 20]}
+        position={[28, 32, 22]}
         castShadow
         shadow-mapSize-width={2048}
         shadow-mapSize-height={2048}
         shadow-camera-near={1}
-        shadow-camera-far={120}
-        shadow-camera-left={-22}
-        shadow-camera-right={22}
-        shadow-camera-top={18}
-        shadow-camera-bottom={-18}
-        shadow-bias={-0.0005}
+        shadow-camera-far={130}
+        shadow-camera-left={-30}
+        shadow-camera-right={30}
+        shadow-camera-top={26}
+        shadow-camera-bottom={-26}
+        shadow-bias={-0.0003}
+        shadow-normalBias={0.02}
       />
 
-      {/* Ambient & Hemisphere lighting for smooth global illumination */}
-      <ambientLight intensity={0.4} color="#e0e7ff" />
-      <hemisphereLight args={['#dbeafe', '#1e293b', 0.5]} />
+      {/* Realistic Ambient & Dual-Color Hemisphere Lighting */}
+      <ambientLight intensity={0.45} color="#f8fafc" />
+      <hemisphereLight args={['#bae6fd', '#334155', 0.75]} />
 
-      {/* Atmospheric Distance Fog */}
-      <fog attach="fog" args={['#0f172a', 30, 90]} />
+      {/* Atmospheric Soft Distance Fog */}
+      <fog attach="fog" args={['#0f172a', 45, 160]} />
+
     </>
   );
 }

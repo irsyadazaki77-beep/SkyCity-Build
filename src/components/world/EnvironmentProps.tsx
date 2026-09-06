@@ -1,21 +1,24 @@
 import React, { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { TileData, TileType } from '../../types';
+import { TileData, TileType, GraphicsQualityTier } from '../../types';
 import { gridToWorld } from './types3D';
+import { TerrainMeshGenerator } from '../../core/world/TerrainMesh';
 
 interface EnvironmentPropsProps {
   grid: TileData[][];
+  graphicsQuality?: GraphicsQualityTier;
 }
 
-interface EnvPosition {
+interface TreeInstance {
   x: number;
   y: number;
   z: number;
   scale: number;
   rotation: number;
+  archetype: 'pine' | 'oak';
 }
 
-interface RockPosition {
+interface RockInstance {
   x: number;
   y: number;
   z: number;
@@ -28,195 +31,249 @@ interface RockPosition {
 // Quick LCG for stable seeded randomness
 function getSeededRandom(seed: number) {
   let s = seed;
-  return function() {
+  return function () {
     s = (s * 1664525 + 1013904223) % 4294967296;
     return s / 4294967296;
   };
 }
 
-export function EnvironmentProps({ grid }: EnvironmentPropsProps) {
+export function EnvironmentProps({ grid, graphicsQuality = 'high' }: EnvironmentPropsProps) {
   const height = grid.length;
   const width = grid[0]?.length || 0;
 
-  // Generate stable tree and rock positions based on grid structure
-  const { treePositions, rockPositions } = useMemo(() => {
-    const trees: EnvPosition[] = [];
-    const rocks: RockPosition[] = [];
+  // Generate clustered tree groves & natural rock clusters
+  const { pineTrees, oakTrees, rocks } = useMemo(() => {
+    const pines: TreeInstance[] = [];
+    const oaks: TreeInstance[] = [];
+    const rockList: RockInstance[] = [];
 
-    // 1. Perimeter boundary nature forest belt (just outside the 60x60 play zone)
-    for (let x = -3; x < width + 3; x++) {
-      for (let y = -3; y < height + 3; y++) {
-        // Only place on the borders
-        if (x < 0 || x >= width || y < 0 || y >= height) {
-          const seed = (x + 100) * 313 + (y + 100) * 127;
-          const rnd = getSeededRandom(seed);
-          
-          if (rnd() < 0.4) {
-            // Find nearby grid tile for height estimate
-            const gx = Math.max(0, Math.min(width - 1, x));
-            const gy = Math.max(0, Math.min(height - 1, y));
-            const baseElevation = grid[gy]?.[gx]?.elevation || 1;
-            
-            const [wx, , wz] = gridToWorld(gx, gy, width, height);
-            const ox = (x < 0 ? x : x >= width ? x - width + 1 : 0);
-            const oz = (y < 0 ? y : y >= height ? y - height + 1 : 0);
-
-            trees.push({
-              x: wx + ox + (rnd() - 0.5) * 0.4,
-              y: baseElevation * 0.15,
-              z: wz + oz + (rnd() - 0.5) * 0.4,
-              scale: 0.65 + rnd() * 0.5,
-              rotation: rnd() * Math.PI * 2,
-            });
-          }
+    const isNearWater = (gx: number, gy: number): boolean => {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const t = grid[gy + dy]?.[gx + dx];
+          if (t?.water) return true;
         }
       }
-    }
+      return false;
+    };
 
-    // 2. Resource/Forest/Rock tiles inside the active map
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
+    // 1. Organic Clusters on Forest Resource Tiles & Natural Mountain/Park Zones
+    for (let y = 1; y < height - 1; y += 2) {
+      for (let x = 1; x < width - 1; x += 2) {
         const tile = grid[y][x];
-        const seed = x * 719 + y * 431;
+        const seed = x * 911 + y * 547;
         const rnd = getSeededRandom(seed);
 
-        if (tile.type === TileType.EMPTY && !tile.water) {
-          const [wx, , wz] = gridToWorld(x, y, width, height);
-          const tileY = (tile.elevation || 0) * 0.15;
+        // Don't place on water, roads, or developed structures
+        if (tile.water || tile.type !== TileType.EMPTY) continue;
 
-          // Place trees on Forest resource or naturally on some tiles
-          if (tile.resource === 'forest') {
-            // Multiple trees inside a forest plot
-            const count = 3 + Math.floor(rnd() * 2);
-            for (let k = 0; k < count; k++) {
-              trees.push({
-                x: wx + (rnd() - 0.5) * 0.5,
-                y: tileY,
-                z: wz + (rnd() - 0.5) * 0.5,
-                scale: 0.55 + rnd() * 0.45,
+        const isForest = tile.resource === 'forest';
+        const isOre = tile.resource === 'ore';
+        const isHighGround = (tile.elevation || 0) >= 3;
+        const isNearRiver = isNearWater(x, y);
+
+        // Forest grove cluster
+        if (isForest) {
+          const clusterSize = graphicsQuality === 'low' ? 3 : 5 + Math.floor(rnd() * 3);
+          for (let k = 0; k < clusterSize; k++) {
+            const offsetX = (rnd() - 0.5) * 1.6;
+            const offsetZ = (rnd() - 0.5) * 1.6;
+            const gx = Math.max(0, Math.min(width - 1, x + offsetX));
+            const gy = Math.max(0, Math.min(height - 1, y + offsetZ));
+
+            const [wx, , wz] = gridToWorld(gx, gy, width, height);
+            const groundY = TerrainMeshGenerator.sampleTerrain(grid, gx, gy, width, height).height;
+
+            // Only place if ground is above waterline
+            if (groundY > 0.05) {
+              const arch = rnd() > 0.4 ? 'pine' : 'oak';
+              const treeData: TreeInstance = {
+                x: wx,
+                y: groundY,
+                z: wz,
+                scale: 0.85 + rnd() * 0.45,
                 rotation: rnd() * Math.PI * 2,
-              });
+                archetype: arch,
+              };
+              if (arch === 'pine') pines.push(treeData);
+              else oaks.push(treeData);
             }
-          } else if (rnd() < 0.10) {
-            // Natural spare trees
-            trees.push({
-              x: wx + (rnd() - 0.5) * 0.4,
-              y: tileY,
-              z: wz + (rnd() - 0.5) * 0.4,
-              scale: 0.5 + rnd() * 0.4,
-              rotation: rnd() * Math.PI * 2,
-            });
           }
+        }
+        // Natural wooded grove (sparse clusters, avoiding individual noise)
+        else if (rnd() < 0.18 && !isOre && !isNearRiver) {
+          const clusterSize = 3 + Math.floor(rnd() * 2);
+          for (let k = 0; k < clusterSize; k++) {
+            const offsetX = (rnd() - 0.5) * 1.2;
+            const offsetZ = (rnd() - 0.5) * 1.2;
+            const gx = Math.max(0, Math.min(width - 1, x + offsetX));
+            const gy = Math.max(0, Math.min(height - 1, y + offsetZ));
 
-          // Place rocks on Ore resources or high elevation hills
-          if (tile.resource === 'ore') {
-            const count = 2 + Math.floor(rnd() * 3);
-            for (let k = 0; k < count; k++) {
-              rocks.push({
-                x: wx + (rnd() - 0.5) * 0.6,
-                y: tileY,
-                z: wz + (rnd() - 0.5) * 0.6,
-                scale: 0.1 + rnd() * 0.2,
+            const [wx, , wz] = gridToWorld(gx, gy, width, height);
+            const groundY = TerrainMeshGenerator.sampleTerrain(grid, gx, gy, width, height).height;
+
+            if (groundY > 0.05) {
+              const arch = isHighGround ? 'pine' : rnd() > 0.5 ? 'oak' : 'pine';
+              const treeData: TreeInstance = {
+                x: wx,
+                y: groundY,
+                z: wz,
+                scale: 0.8 + rnd() * 0.4,
+                rotation: rnd() * Math.PI * 2,
+                archetype: arch,
+              };
+              if (arch === 'pine') pines.push(treeData);
+              else oaks.push(treeData);
+            }
+          }
+        }
+
+        // Mineral / Mountain stone outcrops
+        if (isOre || (isHighGround && rnd() < 0.22)) {
+          const count = 2 + Math.floor(rnd() * 3);
+          for (let k = 0; k < count; k++) {
+            const offsetX = (rnd() - 0.5) * 1.1;
+            const offsetZ = (rnd() - 0.5) * 1.1;
+            const gx = Math.max(0, Math.min(width - 1, x + offsetX));
+            const gy = Math.max(0, Math.min(height - 1, y + offsetZ));
+
+            const [wx, , wz] = gridToWorld(gx, gy, width, height);
+            const groundY = TerrainMeshGenerator.sampleTerrain(grid, gx, gy, width, height).height;
+
+            if (groundY > 0.02) {
+              rockList.push({
+                x: wx,
+                y: groundY + 0.03,
+                z: wz,
+                scale: 0.12 + rnd() * 0.22,
                 rx: rnd() * Math.PI,
                 ry: rnd() * Math.PI,
                 rz: rnd() * Math.PI,
               });
             }
-          } else if ((tile.elevation || 0) >= 5 && rnd() < 0.15) {
-            // Mountain stones
-            rocks.push({
-              x: wx + (rnd() - 0.5) * 0.4,
-              y: tileY,
-              z: wz + (rnd() - 0.5) * 0.4,
-              scale: 0.08 + rnd() * 0.15,
-              rx: rnd() * Math.PI,
-              ry: rnd() * Math.PI,
-              rz: rnd() * Math.PI,
-            });
           }
         }
       }
     }
 
-    return { treePositions: trees, rockPositions: rocks };
-  }, [grid, width, height]);
+    return { pineTrees: pines, oakTrees: oaks, rocks: rockList };
+  }, [grid, width, height, graphicsQuality]);
 
-  // Geometries and Materials
-  const trunkGeo = useMemo(() => new THREE.CylinderGeometry(0.03, 0.05, 0.2, 5), []);
-  const foliageGeo = useMemo(() => new THREE.ConeGeometry(0.18, 0.45, 5), []);
-  const rockGeo = useMemo(() => new THREE.DodecahedronGeometry(0.8, 1), []);
+  // Archetype Geometries & Materials
+  const trunkGeo = useMemo(() => new THREE.CylinderGeometry(0.04, 0.07, 0.35, 6), []);
+  const pineFoliageGeo = useMemo(() => new THREE.ConeGeometry(0.28, 0.72, 6), []);
+  const oakFoliageGeo = useMemo(() => new THREE.DodecahedronGeometry(0.36, 1), []);
+  const rockGeo = useMemo(() => new THREE.DodecahedronGeometry(0.7, 1), []);
 
-  const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#78350f', roughness: 0.95 }), []);
-  const foliageMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#166534', roughness: 0.75 }), []);
-  const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.9 }), []);
+  const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#5c3a21', roughness: 0.9 }), []);
+  const pineMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#166534', roughness: 0.7 }), []);
+  const oakMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#15803d', roughness: 0.65 }), []);
+  const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#64748b', roughness: 0.88 }), []);
 
-  const trunkRef = useRef<THREE.InstancedMesh>(null);
-  const foliageRef = useRef<THREE.InstancedMesh>(null);
+  const pineTrunkRef = useRef<THREE.InstancedMesh>(null);
+  const pineFoliageRef = useRef<THREE.InstancedMesh>(null);
+  const oakTrunkRef = useRef<THREE.InstancedMesh>(null);
+  const oakFoliageRef = useRef<THREE.InstancedMesh>(null);
   const rockRef = useRef<THREE.InstancedMesh>(null);
 
   useEffect(() => {
-    if (!trunkRef.current || !foliageRef.current || !rockRef.current) return;
+    const tempM = new THREE.Matrix4();
+    const tempPos = new THREE.Vector3();
+    const tempScale = new THREE.Vector3();
+    const tempRot = new THREE.Quaternion();
 
-    const tempTrunk = new THREE.Matrix4();
-    const tempFoliage = new THREE.Matrix4();
-    const tempRock = new THREE.Matrix4();
+    // 1. Pines
+    if (pineTrunkRef.current && pineFoliageRef.current) {
+      pineTrees.forEach((tree, i) => {
+        // Trunk
+        tempPos.set(tree.x, tree.y + 0.16 * tree.scale, tree.z);
+        tempScale.set(tree.scale, tree.scale, tree.scale);
+        tempRot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
+        tempM.compose(tempPos, tempRot, tempScale);
+        pineTrunkRef.current!.setMatrixAt(i, tempM);
 
-    // 1. Position Trunks and Foliage
-    treePositions.forEach((tree, i) => {
-      // Trunk Composition
-      const trunkPos = new THREE.Vector3(tree.x, tree.y + 0.1 * tree.scale, tree.z);
-      const trunkScale = new THREE.Vector3(tree.scale, tree.scale, tree.scale);
-      const trunkRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
-      tempTrunk.compose(trunkPos, trunkRot, trunkScale);
-      trunkRef.current!.setMatrixAt(i, tempTrunk);
+        // Conical Foliage
+        tempPos.set(tree.x, tree.y + 0.52 * tree.scale, tree.z);
+        tempM.compose(tempPos, tempRot, tempScale);
+        pineFoliageRef.current!.setMatrixAt(i, tempM);
+      });
+      pineTrunkRef.current.count = pineTrees.length;
+      pineTrunkRef.current.instanceMatrix.needsUpdate = true;
+      pineFoliageRef.current.count = pineTrees.length;
+      pineFoliageRef.current.instanceMatrix.needsUpdate = true;
+    }
 
-      // Foliage Composition (positioned on top of the trunk)
-      const foliagePos = new THREE.Vector3(tree.x, tree.y + 0.35 * tree.scale, tree.z);
-      const foliageScale = new THREE.Vector3(tree.scale, tree.scale, tree.scale);
-      const foliageRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
-      tempFoliage.compose(foliagePos, foliageRot, foliageScale);
-      foliageRef.current!.setMatrixAt(i, tempFoliage);
-    });
+    // 2. Oaks
+    if (oakTrunkRef.current && oakFoliageRef.current) {
+      oakTrees.forEach((tree, i) => {
+        // Trunk
+        tempPos.set(tree.x, tree.y + 0.16 * tree.scale, tree.z);
+        tempScale.set(tree.scale, tree.scale, tree.scale);
+        tempRot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), tree.rotation);
+        tempM.compose(tempPos, tempRot, tempScale);
+        oakTrunkRef.current!.setMatrixAt(i, tempM);
 
-    trunkRef.current.count = treePositions.length;
-    trunkRef.current.instanceMatrix.needsUpdate = true;
+        // Broadleaf Foliage
+        tempPos.set(tree.x, tree.y + 0.5 * tree.scale, tree.z);
+        tempM.compose(tempPos, tempRot, tempScale);
+        oakFoliageRef.current!.setMatrixAt(i, tempM);
+      });
+      oakTrunkRef.current.count = oakTrees.length;
+      oakTrunkRef.current.instanceMatrix.needsUpdate = true;
+      oakFoliageRef.current.count = oakTrees.length;
+      oakFoliageRef.current.instanceMatrix.needsUpdate = true;
+    }
 
-    foliageRef.current.count = treePositions.length;
-    foliageRef.current.instanceMatrix.needsUpdate = true;
-
-    // 2. Position Rocks
-    rockPositions.forEach((rock, i) => {
-      const rockPos = new THREE.Vector3(rock.x, rock.y + 0.04, rock.z);
-      const rockScale = new THREE.Vector3(rock.scale, rock.scale, rock.scale);
-      const rockRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(rock.rx, rock.ry, rock.rz));
-      tempRock.compose(rockPos, rockRot, rockScale);
-      rockRef.current!.setMatrixAt(i, tempRock);
-    });
-
-    rockRef.current.count = rockPositions.length;
-    rockRef.current.instanceMatrix.needsUpdate = true;
-  }, [treePositions, rockPositions]);
+    // 3. Rocks
+    if (rockRef.current) {
+      rocks.forEach((rock, i) => {
+        tempPos.set(rock.x, rock.y + 0.05, rock.z);
+        tempScale.set(rock.scale, rock.scale, rock.scale);
+        tempRot.setFromEuler(new THREE.Euler(rock.rx, rock.ry, rock.rz));
+        tempM.compose(tempPos, tempRot, tempScale);
+        rockRef.current!.setMatrixAt(i, tempM);
+      });
+      rockRef.current.count = rocks.length;
+      rockRef.current.instanceMatrix.needsUpdate = true;
+    }
+  }, [pineTrees, oakTrees, rocks]);
 
   return (
     <group name="EnvironmentProps">
-      {/* High-Performance Instanced Meshes for Vegetation and Prop items */}
+      {/* Pine Trees */}
       <instancedMesh
-        ref={trunkRef}
-        args={[trunkGeo, trunkMat, treePositions.length || 1]}
+        ref={pineTrunkRef}
+        args={[trunkGeo, trunkMat, pineTrees.length || 1]}
         castShadow
         receiveShadow
       />
       <instancedMesh
-        ref={foliageRef}
-        args={[foliageGeo, foliageMat, treePositions.length || 1]}
+        ref={pineFoliageRef}
+        args={[pineFoliageGeo, pineMat, pineTrees.length || 1]}
         castShadow
       />
+
+      {/* Oak Trees */}
+      <instancedMesh
+        ref={oakTrunkRef}
+        args={[trunkGeo, trunkMat, oakTrees.length || 1]}
+        castShadow
+        receiveShadow
+      />
+      <instancedMesh
+        ref={oakFoliageRef}
+        args={[oakFoliageGeo, oakMat, oakTrees.length || 1]}
+        castShadow
+      />
+
+      {/* Rock Outcrops */}
       <instancedMesh
         ref={rockRef}
-        args={[rockGeo, rockMat, rockPositions.length || 1]}
+        args={[rockGeo, rockMat, rocks.length || 1]}
         castShadow
         receiveShadow
       />
     </group>
   );
 }
+

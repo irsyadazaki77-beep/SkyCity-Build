@@ -16,7 +16,40 @@ export enum TileType {
   PARK = 12,
 }
 
-export type OverlayMode = 'NONE' | 'TRAFFIC' | 'POWER' | 'WATER' | 'LAND_VALUE' | 'POLLUTION' | 'CRIME' | 'EDUCATION' | 'HAPPINESS' | 'NOISE' | 'HEALTH' | 'WASTE' | 'FIRE' | 'POLICE' | 'NATURAL_RESOURCES';
+export type OverlayMode =
+  | 'NONE'
+  | 'TRAFFIC'
+  | 'POWER'
+  | 'WATER'
+  | 'LAND_VALUE'
+  | 'POLLUTION'
+  | 'CRIME'
+  | 'EDUCATION'
+  | 'HAPPINESS'
+  | 'NOISE'
+  | 'HEALTH'
+  | 'WASTE'
+  | 'FIRE'
+  | 'POLICE'
+  | 'NATURAL_RESOURCES'
+  | 'TRANSIT';
+
+export type EventType =
+  | 'boom'
+  | 'recession'
+  | 'heatwave'
+  | 'power_shortage'
+  | 'epidemic'
+  | 'festival'
+  | 'tech_inflow';
+
+export interface ActiveEvent {
+  id: string;
+  type: EventType;
+  name: string;
+  description: string;
+  remainingDays: number;
+}
 
 export interface TileData {
   type: TileType;
@@ -38,7 +71,7 @@ export interface TileData {
   schoolCovered?: boolean;
   wasteCovered?: boolean;
 
-  // Phase 6 Depth Simulation Fields
+  // Depth Simulation Fields
   landValue?: number;       // 0 to 100
   pollution?: number;       // 0 to 100
   noise?: number;           // 0 to 100
@@ -47,10 +80,12 @@ export interface TileData {
   education?: number;       // 0 to 100
   upgradeProgress?: number; // 0 to 100 progress counter to level up
 
-  // Phase 12 Terrain & Map Expansion System
+  // Terrain & Map System
   elevation?: number;       // Elevation level (0 to 10)
   resource?: 'none' | 'fertile' | 'ore' | 'oil' | 'forest'; // Natural resource
   water?: boolean;          // If this is a water body tile
+  slope?: number;           // Calculated gradient for rendering
+  treeType?: number;        // Nature variation
 }
 
 export interface HistoryRecord {
@@ -61,6 +96,133 @@ export interface HistoryRecord {
   population: number;
 }
 
+// -------------------------------------------------------------
+// Citizen & Demographic Simulation Types
+// -------------------------------------------------------------
+export type EducationTier = 'uneducated' | 'educated' | 'highly_educated';
+export type IncomeClass = 'low' | 'middle' | 'high';
+export type TransportPreference = 'car' | 'transit' | 'walking' | 'bicycle';
+
+export interface CitizenAgent {
+  id: string;
+  name: string;
+  age: number;               // 0 to 85
+  householdId: string;
+  education: EducationTier;
+  income: IncomeClass;
+  employed: boolean;
+  workplaceKey: string | null; // e.g. "x,y" or null
+  homeKey: string;             // "x,y"
+  health: number;              // 0 to 100
+  happiness: number;           // 0 to 100
+  transportPreference: TransportPreference;
+  commuteTime: number;         // Ticks/minutes
+}
+
+export interface Household {
+  id: string;
+  homeKey: string;
+  members: string[]; // Citizen IDs
+  wealth: number;
+  rent: number;
+}
+
+export interface Company {
+  id: string;
+  zoneKey: string;
+  type: 'commercial' | 'industrial' | 'office';
+  level: number;
+  workers: string[]; // Citizen IDs
+  maxWorkers: number;
+  productivity: number;
+  revenue: number;
+  rent: number;
+}
+
+// -------------------------------------------------------------
+// Road Network & Lane Graph 2.0 Types
+// -------------------------------------------------------------
+export type RoadHierarchy = 'two_lane' | 'avenue' | 'highway' | 'one_way' | 'service' | 'pedestrian';
+
+export interface SplineRoadNode {
+  id: string;
+  x: number;
+  y: number;
+  elevation: number;
+  connectedSegmentIds: string[];
+}
+
+export interface SplineRoadSegment {
+  id: string;
+  startNodeId: string;
+  endNodeId: string;
+  type: RoadHierarchy;
+  speedLimit: number;
+  lanes: number;
+  curveControlPoints?: [number, number, number][]; // Bezier control points
+  length: number;
+  isBridge?: boolean;
+  isTunnel?: boolean;
+}
+
+export interface SimulatedVehicle {
+  id: number;
+  type: 'car' | 'bus' | 'truck' | 'police' | 'fire' | 'ambulance';
+  path: [number, number, number][]; // 3D waypoints
+  currentWaypointIndex: number;
+  progress: number;
+  speed: number;
+  color: string;
+  originKey: string;
+  destinationKey: string;
+  purpose: 'work' | 'shopping' | 'school' | 'service' | 'freight';
+}
+
+export interface SimulatedPedestrian {
+  id: number;
+  startX: number;
+  startZ: number;
+  targetX: number;
+  targetZ: number;
+  progress: number;
+  speed: number;
+  color: string;
+}
+
+// -------------------------------------------------------------
+// Graphic Settings & Benchmarks
+// -------------------------------------------------------------
+export type GraphicsQualityTier = 'low' | 'medium' | 'high' | 'ultra';
+
+export interface GraphicsSettings {
+  tier: GraphicsQualityTier;
+  shadows: boolean;
+  vegetationDensity: number; // 0 to 1
+  vehicleDensity: number;    // 0 to 1
+  pedestrianDensity: number; // 0 to 1
+  renderDistance: number;    // Chunk radius
+  lodDistance: number;       // Distance to drop LOD
+  postProcessing: boolean;
+  pixelRatio: number;        // 1 or window.devicePixelRatio
+  edgeScrolling: boolean;
+}
+
+export interface BenchmarkMetrics {
+  fps: number;
+  frameTimeMs: number;
+  drawCalls: number;
+  triangles: number;
+  simTickMs: number;
+  buildingCount: number;
+  roadNodeCount: number;
+  activeVehicles: number;
+  activePedestrians: number;
+  chunkCount: number;
+}
+
+// -------------------------------------------------------------
+// City State Architecture
+// -------------------------------------------------------------
 export interface CityState {
   grid: TileData[][];
   money: number;
@@ -93,8 +255,9 @@ export interface CityState {
   commercialTaxRate: number;   // 1% to 20% (default 9%)
   industrialTaxRate: number;   // 1% to 20% (default 9%)
   history: HistoryRecord[];    // last 10 ticks history
+  cityLoans?: { principal: number; interestRate: number; remainingDays: number }[];
 
-  // Phase 5 City Services & Utilities 2.0
+  // City Services & Utilities 2.0
   happiness: number;           // 0 to 100% composite score
   healthcareCoverage: number;  // 0 to 100%
   educationCoverage: number;   // 0 to 100%
@@ -104,14 +267,19 @@ export interface CityState {
   wasteProduction: number;     // total waste produced
   wasteCoverage: number;       // 0 to 100%
 
-  // Phase 9 Progression, Events, Policies, and Missions
+  // Public Transit System
+  busStopsCount?: number;
+  transitRidership?: number;
+  transitCapacity?: number;
+
+  // Progression, Events, Policies, and Missions
   milestoneLevel: number;      // 0 to 5
   activePolicies: string[];    // policy IDs
-  activeEvents: any[];         // ActiveEvent[]
+  activeEvents: ActiveEvent[];
   completedMissions: string[]; // Mission IDs
   unlockedAchievements: string[]; // Achievement IDs
 
-  // Phase 6 Depth & Evolution Metrics
+  // Depth & Evolution Metrics
   landValueAverage: number;    // 0 to 100
   pollutionAverage: number;    // 0 to 100
   noiseAverage: number;        // 0 to 100
@@ -124,7 +292,7 @@ export interface CityState {
   };
   seed?: number;               // LCG seed for deterministic simulation
 
-  // Phase 12 Large World Expansion Systems
+  // Large World Expansion Systems
   unlockedRegions?: string[];  // e.g. ["1,1"]
   mapSeed?: number;            // Terrain generation seed
   mapPreset?: string;          // e.g. "river_valley"
@@ -161,3 +329,4 @@ export const MAINTENANCE_COSTS: Record<TileType, number> = {
   [TileType.WASTE_MANAGEMENT]: GAME_CONFIG.MAINTENANCE_COSTS.WASTE_MANAGEMENT,
   [TileType.PARK]: GAME_CONFIG.MAINTENANCE_COSTS.PARK,
 };
+
