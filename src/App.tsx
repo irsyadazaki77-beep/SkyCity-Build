@@ -17,14 +17,14 @@ import { BuildingInspector } from './components/ui/BuildingInspector';
 import { CursorTooltip } from './components/ui/CursorTooltip';
 import { OverlayMode } from './types';
 
-// Phase 9 Progression & Save System Components
+// Progression & Save System Components
 import { TechTreeModal } from './components/TechTreeModal';
 import { PoliciesModal } from './components/PoliciesModal';
 import { MissionsModal } from './components/MissionsModal';
 import { SaveLoadModal } from './components/SaveLoadModal';
 import { MilestoneBanner } from './components/MilestoneBanner';
 
-// Custom Phase 11 UI Components & Debug HUD
+// Custom UI Components & Debug HUD
 import { SettingsModal } from './components/ui/SettingsModal';
 import { NotificationCenter, NotificationItem } from './components/ui/NotificationCenter';
 import { DeveloperDebugHUD } from './components/ui/DeveloperDebugHUD';
@@ -112,10 +112,22 @@ export default function App() {
   const {
     gameState,
     setGameState,
+    revisions,
+    dirtyTerrainChunks,
+    dirtyRoadChunks,
+    dirtyBuildingChunks,
+    activeVehicles,
+    activePedestrians,
+    metrics,
     speed,
     setSpeed,
     simulationTimeMs,
+    dispatchCommand,
     isWorkerActive,
+    incrementTerrainRebuildCount,
+    incrementRoadRebuildCount,
+    incrementBuildingBatchCount,
+    setVisibleChunksCount,
   } = useSimulationController(initialCityState);
 
   const [activeTool, setActiveTool] = useState<TileType | 'POINTER' | 'BULLDOZER' | 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN'>('POINTER');
@@ -139,12 +151,10 @@ export default function App() {
   const [dragStart, setDragStart] = useState<[number, number] | null>(null);
   const [dragCurrent, setDragCurrent] = useState<[number, number] | null>(null);
 
-
   // Developer visual inspection toggles
   const [debugChunkBoundaries, setDebugChunkBoundaries] = useState<boolean>(false);
   const [debugTerrainLOD, setDebugTerrainLOD] = useState<boolean>(false);
   const [debugRoadSegments, setDebugRoadSegments] = useState<boolean>(false);
-
 
   const prevMilestoneRef = useRef<number>(gameState.milestoneLevel ?? 0);
 
@@ -232,13 +242,11 @@ export default function App() {
   }, []);
 
   const setTaxRates = useCallback((res: number, com: number, ind: number) => {
-    setGameState((prev) => ({
-      ...prev,
-      residentialTaxRate: res,
-      commercialTaxRate: com,
-      industrialTaxRate: ind,
-    }));
-  }, [setGameState]);
+    dispatchCommand({
+      type: 'SET_TAX',
+      payload: { residential: res, commercial: com, industrial: ind },
+    });
+  }, [dispatchCommand]);
 
   const addSystemNotification = useCallback(
     (type: NotificationItem['type'], title: string, message: string) => {
@@ -297,8 +305,8 @@ export default function App() {
 
   const calculateTotalCost = useCallback(
     (tiles: [number, number][], type: TileType): number => {
-      let total = 0;
       const costPerTile = BUILD_COSTS[type] || 0;
+      let total = 0;
       for (const [x, y] of tiles) {
         if (y >= 0 && y < GRID_HEIGHT && x >= 0 && x < GRID_WIDTH) {
           const tile = gameState.grid[y][x];
@@ -381,71 +389,25 @@ export default function App() {
       return;
     }
 
-    setGameState((prev) => {
-      const nextGrid = prev.grid.map((row) => row.map((tile) => ({ ...tile })));
-      for (const [x, y] of tiles) {
-        nextGrid[y][x] = {
-          type,
-          x,
-          y,
-          level: 1,
-          population: 0,
-          jobs: 0,
-          traffic: 0,
-          powered: false,
-          watered: false,
-          productivity: 0,
-          abandoned: false,
-          landValue: 35,
-          pollution: 0,
-          noise: 0,
-          crime: 30,
-          health: 50,
-          education: 0,
-          upgradeProgress: 0,
-        };
-      }
-      return {
-        ...prev,
-        grid: nextGrid,
-        money: Math.round(prev.money - totalCost),
-      };
-    });
-  }, [dragStart, dragCurrent, activeTool, gameState, getDragPreviewTiles, calculateTotalCost, validateTilePlacement, addSystemNotification, setGameState]);
+    if (type === TileType.ROAD) {
+      dispatchCommand({
+        type: 'BUILD_ROAD',
+        payload: { tiles, cost: totalCost },
+      });
+    } else {
+      dispatchCommand({
+        type: 'BUILD_ZONE',
+        payload: { tiles, type, cost: totalCost },
+      });
+    }
+  }, [dragStart, dragCurrent, activeTool, gameState, getDragPreviewTiles, calculateTotalCost, validateTilePlacement, addSystemNotification, dispatchCommand]);
 
   const applyBulldoze = useCallback((x: number, y: number) => {
-    setGameState((prev) => {
-      const nextGrid = prev.grid.map((row) => row.map((tile) => ({ ...tile })));
-      const currentTile = nextGrid[y][x];
-      if (currentTile.type !== TileType.EMPTY) {
-        nextGrid[y][x] = {
-          type: TileType.EMPTY,
-          x,
-          y,
-          level: 1,
-          population: 0,
-          jobs: 0,
-          traffic: 0,
-          powered: false,
-          watered: false,
-          productivity: 0,
-          abandoned: false,
-          landValue: 35,
-          pollution: 0,
-          noise: 0,
-          crime: 30,
-          health: 50,
-          education: 0,
-          upgradeProgress: 0,
-        };
-        return {
-          ...prev,
-          grid: nextGrid,
-        };
-      }
-      return prev;
+    dispatchCommand({
+      type: 'BULLDOZE',
+      payload: { tiles: [[x, y]], cost: 0 },
     });
-  }, [setGameState]);
+  }, [dispatchCommand]);
 
   const validateAndPlaceSingleTile = useCallback(
     (x: number, y: number, type: TileType) => {
@@ -459,41 +421,25 @@ export default function App() {
         addSystemNotification('economy', 'Insufficient Funds', 'You do not have enough funds to construct this building.');
         return;
       }
-      setGameState((prev) => {
-        const nextGrid = prev.grid.map((row) => row.map((tile) => ({ ...tile })));
-        nextGrid[y][x] = {
-          type,
-          x,
-          y,
-          level: 1,
-          population: 0,
-          jobs: 0,
-          traffic: 0,
-          powered: false,
-          watered: false,
-          productivity: 0,
-          abandoned: false,
-          landValue: 35,
-          pollution: 0,
-          noise: 0,
-          crime: 30,
-          health: 50,
-          education: 0,
-          upgradeProgress: 0,
-        };
-        return {
-          ...prev,
-          grid: nextGrid,
-          money: Math.max(0, prev.money - cost),
-        };
-      });
+
+      if (type === TileType.ROAD) {
+        dispatchCommand({
+          type: 'BUILD_ROAD',
+          payload: { tiles: [[x, y]], cost },
+        });
+      } else {
+        dispatchCommand({
+          type: 'BUILD_ZONE',
+          payload: { tiles: [[x, y]], type, cost },
+        });
+      }
     },
-    [gameState.grid, gameState.money, validateTilePlacement, addSystemNotification, setGameState]
+    [gameState.grid, gameState.money, validateTilePlacement, addSystemNotification, dispatchCommand]
   );
 
   const applyTerraforming = useCallback(
     (cx: number, cy: number, tool: string) => {
-      const tiles = [];
+      const tiles: [number, number][] = [];
       const radius = brushSize - 1;
       for (let dy = -radius; dy <= radius; dy++) {
         for (let dx = -radius; dx <= radius; dx++) {
@@ -510,61 +456,19 @@ export default function App() {
         return;
       }
 
-      setGameState((prev) => {
-        const nextGrid = prev.grid.map((row) => row.map((tile) => ({ ...tile })));
-        const centerElevation = nextGrid[cy]?.[cx]?.elevation || 0;
+      const centerElevation = gameState.grid[cy]?.[cx]?.elevation || 0;
 
-        tiles.forEach(([tx, ty]) => {
-          const tile = nextGrid[ty][tx];
-          if (tool === 'RAISE_TERRAIN') {
-            tile.elevation = Math.min(10, (tile.elevation || 0) + 1);
-            if (tile.elevation > 0) {
-              tile.water = false;
-            }
-          } else if (tool === 'LOWER_TERRAIN') {
-            tile.elevation = Math.max(0, (tile.elevation || 0) - 1);
-            if (tile.elevation === 0) {
-              tile.water = true;
-              tile.type = TileType.EMPTY;
-            }
-          } else if (tool === 'LEVEL_TERRAIN') {
-            tile.elevation = centerElevation;
-            if (tile.elevation === 0) {
-              tile.water = true;
-              tile.type = TileType.EMPTY;
-            } else {
-              tile.water = false;
-            }
-          } else if (tool === 'SMOOTH_TERRAIN') {
-            let sum = tile.elevation || 0;
-            let count = 1;
-            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-            dirs.forEach(([dx, dy]) => {
-              const nx = tx + dx;
-              const ny = ty + dy;
-              if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
-                sum += prev.grid[ny][nx].elevation || 0;
-                count++;
-              }
-            });
-            tile.elevation = Math.round(sum / count);
-            if (tile.elevation === 0) {
-              tile.water = true;
-              tile.type = TileType.EMPTY;
-            } else {
-              tile.water = false;
-            }
-          }
-        });
-
-        return {
-          ...prev,
-          grid: nextGrid,
-          money: Math.max(0, prev.money - totalCost),
-        };
+      dispatchCommand({
+        type: 'TERRAFORM',
+        payload: {
+          tiles,
+          tool,
+          cost: totalCost,
+          centerElevation,
+        },
       });
     },
-    [brushSize, gameState.money, addSystemNotification, setGameState]
+    [brushSize, gameState.money, gameState.grid, addSystemNotification, dispatchCommand]
   );
 
   const handleUnlockRegion = useCallback(
@@ -577,17 +481,13 @@ export default function App() {
       const key = `${rx},${ry}`;
       if (gameState.unlockedRegions?.includes(key)) return;
 
-      setGameState((prev) => {
-        const nextUnlocked = [...(prev.unlockedRegions || []), key];
-        addSystemNotification('milestone', 'Region Unlocked!', `Purchased and unlocked sector coordinate [${rx}, ${ry}]!`);
-        return {
-          ...prev,
-          unlockedRegions: nextUnlocked,
-          money: prev.money - cost,
-        };
+      dispatchCommand({
+        type: 'UNLOCK_REGION',
+        payload: { rx, ry },
       });
+      addSystemNotification('milestone', 'Region Unlocked!', `Purchased and unlocked sector coordinate [${rx}, ${ry}]!`);
     },
-    [gameState.money, gameState.unlockedRegions, addSystemNotification, setGameState]
+    [gameState.money, gameState.unlockedRegions, addSystemNotification, dispatchCommand]
   );
 
   const handleTileAction = useCallback(
@@ -661,7 +561,7 @@ export default function App() {
 
   const handleNewCity = useCallback(() => {
     const freshGrid = createEmptyGrid();
-    setGameState({
+    const freshState: CityState = {
       grid: freshGrid,
       money: GAME_CONFIG.STARTING_MONEY,
       population: 0,
@@ -714,11 +614,12 @@ export default function App() {
       },
       unlockedRegions: ['1,1'],
       seed: Math.floor(Math.random() * 4294967296),
-    });
+    };
+    dispatchCommand({ type: 'LOAD_STATE', payload: freshState });
     setNotifications([]);
     setShowNotifications(false);
     setShowSaveLoad(false);
-  }, [setGameState]);
+  }, [dispatchCommand]);
 
   const selectedTileData: TileData | null =
     selectedTileCoords &&
@@ -727,27 +628,9 @@ export default function App() {
       ? gameState.grid[selectedTileCoords[1]][selectedTileCoords[0]]
       : null;
 
-  const getToolName = (type: TileType) => {
-    switch (type) {
-      case TileType.RESIDENTIAL: return 'Residential Zone';
-      case TileType.COMMERCIAL: return 'Commercial Zone';
-      case TileType.INDUSTRIAL: return 'Industrial Zone';
-      case TileType.POWER_PLANT: return 'Coal Power Plant';
-      case TileType.WATER_PUMP: return 'Water Pumping Station';
-      case TileType.FIRE_STATION: return 'Fire Station';
-      case TileType.POLICE_STATION: return 'Police Headquarters';
-      case TileType.CLINIC: return 'Medical Clinic';
-      case TileType.SCHOOL: return 'Elementary School';
-      case TileType.PARK: return 'City Park';
-      case TileType.ROAD: return 'Road';
-      case TileType.WASTE_MANAGEMENT: return 'Waste Management';
-      default: return 'Build';
-    }
-  };
-
   return (
     <div className="flex flex-col h-screen bg-[#0a0f1d] text-gray-200 font-sans overflow-hidden select-none">
-      {/* Dynamic Cursor Tooltip (Isolated pointermove listener) */}
+      {/* Dynamic Cursor Tooltip */}
       <CursorTooltip activeTool={activeTool} brushSize={brushSize} />
 
       {/* Top Header Navigation & Status Bar */}
@@ -834,9 +717,13 @@ export default function App() {
           <BuildingInspector tile={selectedTileData} onClose={() => setSelectedTileCoords(null)} />
         )}
 
-        {/* True 3D World Canvas (Decoupled from simulation stats) */}
+        {/* True 3D World Canvas with Revision-Based Incremental Rendering */}
         <City3DCanvas
           grid={gameState.grid}
+          revisions={revisions}
+          dirtyTerrainChunks={dirtyTerrainChunks}
+          dirtyRoadChunks={dirtyRoadChunks}
+          dirtyBuildingChunks={dirtyBuildingChunks}
           day={gameState.day}
           speed={speed}
           activeTool={activeTool}
@@ -855,10 +742,16 @@ export default function App() {
           onTileAction={handleTileAction}
           onTilePointerEnter={handleTilePointerEnter}
           onUnlockRegion={handleUnlockRegion}
+          onChunkRebuild={incrementTerrainRebuildCount}
+          onRoadRebuild={incrementRoadRebuildCount}
+          onBuildingBatchUpdate={incrementBuildingBatchCount}
+          onVisibleChunksChange={setVisibleChunksCount}
           dragPreviewTiles={getDragPreviewTiles()}
           dragPreviewColor={
             calculateTotalCost(getDragPreviewTiles(), activeTool as TileType) <= gameState.money ? 'green' : 'red'
           }
+          activeVehicles={activeVehicles}
+          activePedestrians={activePedestrians}
         />
 
         {/* Organized Construction Dock at Bottom */}
@@ -881,14 +774,16 @@ export default function App() {
           simulationTimeMs={simulationTimeMs}
           populationCount={gameState.population}
           householdsCount={gameState.households}
-          activeVehiclesCount={0}
-          activePedestriansCount={0}
+          activeVehiclesCount={activeVehicles.length}
+          activePedestriansCount={activePedestrians.length}
           day={gameState.day}
           graphicsQuality={graphicsQuality}
           onGraphicsQualityChange={setGraphicsQuality}
           isWorkerActive={isWorkerActive}
           totalBuildingsCount={gameState.grid.flat().filter((t) => t.type !== TileType.EMPTY && t.type !== TileType.ROAD).length}
-          activeChunksCount={16}
+          activeChunksCount={25}
+          profilerMetrics={metrics}
+          revisions={revisions}
           showChunkBoundaries={debugChunkBoundaries}
           onToggleChunkBoundaries={setDebugChunkBoundaries}
           showTerrainLOD={debugTerrainLOD}
@@ -896,7 +791,6 @@ export default function App() {
           showRoadSegments={debugRoadSegments}
           onToggleRoadSegments={setDebugRoadSegments}
         />
-
       </main>
 
       {/* Modals */}
@@ -916,11 +810,10 @@ export default function App() {
         milestoneLevel={gameState.milestoneLevel ?? 0}
         money={gameState.money}
         onUnlockTech={(id, cost) => {
-          setGameState((prev) => ({
-            ...prev,
-            money: prev.money - cost,
-            unlockedUpgrades: [...prev.unlockedUpgrades, id],
-          }));
+          dispatchCommand({
+            type: 'UNLOCK_TECH',
+            payload: { techId: id, cost },
+          });
         }}
       />
 
@@ -930,13 +823,11 @@ export default function App() {
         activePolicies={gameState.activePolicies || []}
         milestoneLevel={gameState.milestoneLevel ?? 0}
         onTogglePolicy={(id) => {
-          setGameState((prev) => {
-            const currentP = prev.activePolicies || [];
-            const nextP = currentP.includes(id) ? currentP.filter((p) => p !== id) : [...currentP, id];
-            return {
-              ...prev,
-              activePolicies: nextP,
-            };
+          const currentP = gameState.activePolicies || [];
+          const nextP = currentP.includes(id) ? currentP.filter((p) => p !== id) : [...currentP, id];
+          dispatchCommand({
+            type: 'SET_POLICY',
+            payload: { policyId: id, active: !currentP.includes(id) },
           });
         }}
       />
@@ -959,7 +850,7 @@ export default function App() {
         onClose={() => setShowSaveLoad(false)}
         gameState={gameState}
         onLoadState={(newState) => {
-          setGameState(newState);
+          dispatchCommand({ type: 'LOAD_STATE', payload: newState });
           setShowSaveLoad(false);
         }}
         onNewGame={handleNewCity}

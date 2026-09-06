@@ -31,6 +31,10 @@ export class ChunkManager {
   public chunksX: number;
   public chunksY: number;
 
+  public dirtyTerrainChunkKeys: Set<string> = new Set();
+  public dirtyRoadChunkKeys: Set<string> = new Set();
+  public dirtyBuildingChunkKeys: Set<string> = new Set();
+
   constructor(width = 60, height = 60) {
     this.width = width;
     this.height = height;
@@ -50,6 +54,10 @@ export class ChunkManager {
 
   public initFromGrid(grid: TileData[][], unlockedRegions: string[] = ['1,1']): void {
     this.chunks.clear();
+    this.dirtyTerrainChunkKeys.clear();
+    this.dirtyRoadChunkKeys.clear();
+    this.dirtyBuildingChunkKeys.clear();
+
     this.height = grid.length;
     this.width = grid[0]?.length || 0;
     this.chunksX = Math.ceil(this.width / CHUNK_SIZE);
@@ -97,25 +105,113 @@ export class ChunkManager {
           roadCount,
           unlocked,
         });
+
+        this.dirtyTerrainChunkKeys.add(id);
+        this.dirtyRoadChunkKeys.add(id);
+        this.dirtyBuildingChunkKeys.add(id);
       }
     }
   }
 
-  public markTileDirty(x: number, y: number, type?: TileType): void {
+  public markTerrainDirty(x: number, y: number, includeSeams = true): void {
     const { cx, cy } = this.getChunkForTile(x, y);
     const key = this.getChunkKey(cx, cy);
+    this.dirtyTerrainChunkKeys.add(key);
+
     const chunk = this.chunks.get(key);
     if (chunk) {
       chunk.isDirty = true;
-      if (type === TileType.ROAD) chunk.roadsDirty = true;
-      else if (type !== undefined && type !== TileType.EMPTY) chunk.buildingsDirty = true;
-      else {
-        chunk.terrainDirty = true;
-        chunk.buildingsDirty = true;
-        chunk.roadsDirty = true;
+      chunk.terrainDirty = true;
+    }
+
+    // Seam neighbor propagation (terrain mesh overlaps 1 unit for smooth continuous normal calculation)
+    if (includeSeams) {
+      const modX = x % CHUNK_SIZE;
+      const modY = y % CHUNK_SIZE;
+
+      if (modX === 0 && cx > 0) {
+        this.markChunkTerrainDirty(cx - 1, cy);
+      } else if (modX === CHUNK_SIZE - 1 && cx < this.chunksX - 1) {
+        this.markChunkTerrainDirty(cx + 1, cy);
+      }
+
+      if (modY === 0 && cy > 0) {
+        this.markChunkTerrainDirty(cx, cy - 1);
+      } else if (modY === CHUNK_SIZE - 1 && cy < this.chunksY - 1) {
+        this.markChunkTerrainDirty(cx, cy + 1);
+      }
+
+      // Corners
+      if (modX === 0 && modY === 0 && cx > 0 && cy > 0) {
+        this.markChunkTerrainDirty(cx - 1, cy - 1);
+      } else if (modX === CHUNK_SIZE - 1 && modY === 0 && cx < this.chunksX - 1 && cy > 0) {
+        this.markChunkTerrainDirty(cx + 1, cy - 1);
+      } else if (modX === 0 && modY === CHUNK_SIZE - 1 && cx > 0 && cy < this.chunksY - 1) {
+        this.markChunkTerrainDirty(cx - 1, cy + 1);
+      } else if (modX === CHUNK_SIZE - 1 && modY === CHUNK_SIZE - 1 && cx < this.chunksX - 1 && cy < this.chunksY - 1) {
+        this.markChunkTerrainDirty(cx + 1, cy + 1);
       }
     }
   }
+
+  private markChunkTerrainDirty(cx: number, cy: number): void {
+    const k = this.getChunkKey(cx, cy);
+    this.dirtyTerrainChunkKeys.add(k);
+    const c = this.chunks.get(k);
+    if (c) {
+      c.isDirty = true;
+      c.terrainDirty = true;
+    }
+  }
+
+  public markRoadDirty(x: number, y: number): void {
+    const { cx, cy } = this.getChunkForTile(x, y);
+    const key = this.getChunkKey(cx, cy);
+    this.dirtyRoadChunkKeys.add(key);
+
+    const chunk = this.chunks.get(key);
+    if (chunk) {
+      chunk.isDirty = true;
+      chunk.roadsDirty = true;
+    }
+  }
+
+  public markBuildingDirty(x: number, y: number): void {
+    const { cx, cy } = this.getChunkForTile(x, y);
+    const key = this.getChunkKey(cx, cy);
+    this.dirtyBuildingChunkKeys.add(key);
+
+    const chunk = this.chunks.get(key);
+    if (chunk) {
+      chunk.isDirty = true;
+      chunk.buildingsDirty = true;
+    }
+  }
+
+  public markTileDirty(x: number, y: number, type?: TileType): void {
+    if (type === TileType.ROAD) {
+      this.markRoadDirty(x, y);
+    } else if (type !== undefined && type !== TileType.EMPTY) {
+      this.markBuildingDirty(x, y);
+    } else {
+      this.markTerrainDirty(x, y, true);
+      this.markBuildingDirty(x, y);
+      this.markRoadDirty(x, y);
+    }
+  }
+
+  public consumeDirtyChunks(): { terrain: string[]; roads: string[]; buildings: string[] } {
+    const res = {
+      terrain: Array.from(this.dirtyTerrainChunkKeys),
+      roads: Array.from(this.dirtyRoadChunkKeys),
+      buildings: Array.from(this.dirtyBuildingChunkKeys),
+    };
+    this.dirtyTerrainChunkKeys.clear();
+    this.dirtyRoadChunkKeys.clear();
+    this.dirtyBuildingChunkKeys.clear();
+    return res;
+  }
+
 
   public getChunk(cx: number, cy: number): WorldChunk | undefined {
     return this.chunks.get(this.getChunkKey(cx, cy));

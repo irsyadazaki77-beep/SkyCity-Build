@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { ThreeEvent } from '@react-three/fiber';
+import { ThreeEvent, useFrame } from '@react-three/fiber';
 import { TileData, TileType, OverlayMode, GraphicsQualityTier } from '../types';
 import { TerrainMeshGenerator } from '../core/world/TerrainMesh';
 import { CHUNK_SIZE } from '../core/simulation/ChunkManager';
@@ -8,6 +8,8 @@ import { gridToWorld, worldToGrid, TILE_SIZE } from '../components/world/types3D
 
 interface ChunkTerrainRendererProps {
   grid: TileData[][];
+  terrainRevision: number;
+  dirtyTerrainChunks?: Set<string>;
   activeTool: TileType | 'POINTER' | 'BULLDOZER' | 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN';
   activeOverlay?: OverlayMode | 'NATURAL_RESOURCES';
   brushSize?: number;
@@ -16,12 +18,30 @@ interface ChunkTerrainRendererProps {
   showTerrainLOD?: boolean;
   onTileClick: (x: number, y: number) => void;
   onTilePointerEnter: (x: number, y: number) => void;
+  onChunkRebuild?: (count: number) => void;
+  onVisibleChunksChange?: (count: number) => void;
   dragPreviewTiles?: [number, number][];
   dragPreviewColor?: string;
 }
 
+interface ChunkEntry {
+  id: string;
+  cx: number;
+  cy: number;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  centerWorld: THREE.Vector3;
+  box: THREE.Box3;
+  geometry: THREE.BufferGeometry;
+  lod: number;
+}
+
 export function ChunkTerrainRenderer({
   grid,
+  terrainRevision,
+  dirtyTerrainChunks,
   activeTool,
   activeOverlay = 'NONE',
   brushSize = 1,
@@ -30,6 +50,8 @@ export function ChunkTerrainRenderer({
   showTerrainLOD = false,
   onTileClick,
   onTilePointerEnter,
+  onChunkRebuild,
+  onVisibleChunksChange,
   dragPreviewTiles = [],
   dragPreviewColor = 'green',
 }: ChunkTerrainRendererProps) {
@@ -41,40 +63,148 @@ export function ChunkTerrainRenderer({
 
   const [hoverTile, setHoverTile] = useState<[number, number] | null>(null);
 
-  // Generate chunk geometries with adaptive LOD
-  const chunkGeometries = useMemo(() => {
-    const list: { id: string; geometry: THREE.BufferGeometry; minX: number; minY: number; maxX: number; maxY: number; lod: number }[] = [];
+  // Chunk geometries cache: id -> ChunkEntry
+  const chunkCacheRef = useRef<Map<string, ChunkEntry>>(new Map());
+  const [chunkList, setChunkList] = useState<ChunkEntry[]>([]);
+  const prevTerrainRevisionRef = useRef<number>(-1);
+  const prevQualityRef = useRef<GraphicsQualityTier>(graphicsQuality);
 
-    // Center of map or camera focus point
-    const centerX = width / 2;
-    const centerY = height / 2;
+  // Camera frustum for culling
+  const meshRefs = useRef<Map<string, THREE.Mesh>>(new Map());
+  const frustumRef = useRef(new THREE.Frustum());
+  const projScreenMatrixRef = useRef(new THREE.Matrix4());
+  const lastVisibleCountRef = useRef(-1);
+
+  // Incremental chunk generation
+  useEffect(() => {
+    const isFirstRun = prevTerrainRevisionRef.current === -1;
+    const revisionChanged = terrainRevision !== prevTerrainRevisionRef.current;
+    const qualityChanged = graphicsQuality !== prevQualityRef.current;
+
+    if (!isFirstRun && !revisionChanged && !qualityChanged) {
+      return;
+    }
+
+    prevTerrainRevisionRef.current = terrainRevision;
+    prevQualityRef.current = graphicsQuality;
+
+    const cache = chunkCacheRef.current;
+    let rebuildCount = 0;
+
+    const isAllDirty = isFirstRun || !dirtyTerrainChunks || dirtyTerrainChunks.has('all');
 
     for (let cy = 0; cy < chunksY; cy++) {
       for (let cx = 0; cx < chunksX; cx++) {
+        const id = `${cx},${cy}`;
         const minX = cx * CHUNK_SIZE;
         const minY = cy * CHUNK_SIZE;
         const maxX = Math.min(width - 1, (cx + 1) * CHUNK_SIZE - 1);
         const maxY = Math.min(height - 1, (cy + 1) * CHUNK_SIZE - 1);
 
-        const chunkMidX = (minX + maxX) / 2;
-        const chunkMidY = (minY + maxY) / 2;
-        const distToCenter = Math.sqrt(Math.pow(chunkMidX - centerX, 2) + Math.pow(chunkMidY - centerY, 2));
+        const chunkMidXW = ((minX + maxX + 1) / 2 - width / 2) * TILE_SIZE;
+        const chunkMidZW = ((minY + maxY + 1) / 2 - height / 2) * TILE_SIZE;
+        const centerWorld = new THREE.Vector3(chunkMidXW, 0, chunkMidZW);
 
-        // Adaptive LOD based on distance to center & quality setting
-        let lod = 0;
-        if (graphicsQuality === 'low') {
-          lod = 1;
-        } else if (distToCenter > 28) {
-          lod = 1;
+        const halfW = ((maxX - minX + 1) * TILE_SIZE) / 2;
+        const halfD = ((maxY - minY + 1) * TILE_SIZE) / 2;
+        const box = new THREE.Box3(
+          new THREE.Vector3(chunkMidXW - halfW, -2, chunkMidZW - halfD),
+          new THREE.Vector3(chunkMidXW + halfW, 8, chunkMidZW + halfD)
+        );
+
+        const existing = cache.get(id);
+        const shouldRebuild = isAllDirty || dirtyTerrainChunks.has(id) || !existing;
+
+        if (shouldRebuild) {
+          if (existing?.geometry) {
+            existing.geometry.dispose();
+          }
+
+          let lod = 0;
+          if (graphicsQuality === 'low') lod = 1;
+
+          const geometry = TerrainMeshGenerator.generateChunkGeometry(
+            grid,
+            minX,
+            minY,
+            maxX,
+            maxY,
+            width,
+            height,
+            lod
+          );
+
+          cache.set(id, {
+            id,
+            cx,
+            cy,
+            minX,
+            minY,
+            maxX,
+            maxY,
+            centerWorld,
+            box,
+            geometry,
+            lod,
+          });
+
+          rebuildCount++;
         }
-
-        const geo = TerrainMeshGenerator.generateChunkGeometry(grid, minX, minY, maxX, maxY, width, height, lod);
-        list.push({ id: `${cx},${cy}`, geometry: geo, minX, minY, maxX, maxY, lod });
       }
     }
 
-    return list;
-  }, [grid, width, height, chunksX, chunksY, graphicsQuality]);
+    if (rebuildCount > 0) {
+      if (onChunkRebuild) onChunkRebuild(rebuildCount);
+      setChunkList(Array.from(cache.values()));
+    }
+  }, [grid, terrainRevision, dirtyTerrainChunks, width, height, chunksX, chunksY, graphicsQuality, onChunkRebuild]);
+
+  // Frame-by-frame camera LOD & Frustum Culling
+  useFrame(({ camera }) => {
+    projScreenMatrixRef.current.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustumRef.current.setFromProjectionMatrix(projScreenMatrixRef.current);
+
+    let visibleCount = 0;
+    const cache = chunkCacheRef.current;
+    const camPos = camera.position;
+
+    meshRefs.current.forEach((mesh, id) => {
+      const entry = cache.get(id);
+      if (!entry) return;
+
+      const isVisible = frustumRef.current.intersectsBox(entry.box);
+      mesh.visible = isVisible;
+      if (isVisible) visibleCount++;
+
+      // Adaptive camera LOD: if chunk is within 40 units, use LOD 0. If > 40 units, use LOD 1.
+      if (isVisible && graphicsQuality !== 'low') {
+        const dist = camPos.distanceTo(entry.centerWorld);
+        const targetLod = dist > 42 ? 1 : 0;
+        if (targetLod !== entry.lod) {
+          entry.lod = targetLod;
+          entry.geometry.dispose();
+          entry.geometry = TerrainMeshGenerator.generateChunkGeometry(
+            grid,
+            entry.minX,
+            entry.minY,
+            entry.maxX,
+            entry.maxY,
+            width,
+            height,
+            targetLod
+          );
+          mesh.geometry = entry.geometry;
+        }
+      }
+    });
+
+    if (visibleCount !== lastVisibleCountRef.current) {
+      lastVisibleCountRef.current = visibleCount;
+      if (onVisibleChunksChange) {
+        onVisibleChunksChange(visibleCount);
+      }
+    }
+  });
 
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
@@ -101,7 +231,6 @@ export function ChunkTerrainRenderer({
     activeTool === 'LEVEL_TERRAIN' ||
     activeTool === 'SMOOTH_TERRAIN';
 
-  // Compute cursor position in world space
   const cursorWorldPos = useMemo(() => {
     if (!hoverTile) return null;
     const [wx, , wz] = gridToWorld(hoverTile[0], hoverTile[1], width, height);
@@ -109,7 +238,6 @@ export function ChunkTerrainRenderer({
     return [wx, el + 0.05, wz] as [number, number, number];
   }, [hoverTile, grid, width, height]);
 
-  // Chunk boundary lines for debug
   const chunkBoundaryHelpers = useMemo(() => {
     if (!showChunkBoundaries) return [];
     const helpers: { id: string; position: [number, number, number]; size: [number, number, number] }[] = [];
@@ -139,9 +267,13 @@ export function ChunkTerrainRenderer({
 
   return (
     <group name="ChunkTerrain">
-      {chunkGeometries.map((chunk) => (
+      {chunkList.map((chunk) => (
         <mesh
           key={chunk.id}
+          ref={(el) => {
+            if (el) meshRefs.current.set(chunk.id, el);
+            else meshRefs.current.delete(chunk.id);
+          }}
           geometry={chunk.geometry}
           receiveShadow
           onPointerMove={handlePointerMove}
@@ -156,7 +288,7 @@ export function ChunkTerrainRenderer({
         </mesh>
       ))}
 
-      {/* Unified Batched Water Surface Plane */}
+      {/* Batched Unified Water Surface Plane */}
       <mesh
         position={[0, 0.0, 0]}
         rotation={[-Math.PI / 2, 0, 0]}
@@ -212,4 +344,3 @@ export function ChunkTerrainRenderer({
     </group>
   );
 }
-

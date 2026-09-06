@@ -1,11 +1,13 @@
 import React, { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { TileData, TileType } from '../types';
-import { gridToWorld, TILE_SIZE } from '../components/world/types3D';
+import { gridToWorld } from '../components/world/types3D';
 
 interface InstancedBuildingRendererProps {
   grid: TileData[][];
+  buildingRevision: number;
   nightFactor: number;
+  onBuildingBatchUpdate?: (count: number) => void;
 }
 
 const dummyMatrix = new THREE.Matrix4();
@@ -26,13 +28,26 @@ const ZONE_COLORS: Record<number, string[]> = {
   [TileType.PARK]: ['#10b981'],
 };
 
-export function InstancedBuildingRenderer({ grid, nightFactor }: InstancedBuildingRendererProps) {
+export function InstancedBuildingRenderer({
+  grid,
+  buildingRevision,
+  nightFactor,
+  onBuildingBatchUpdate,
+}: InstancedBuildingRendererProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const height = grid.length;
   const width = grid[0]?.length || 0;
 
-  // Filter building tiles
+  const prevRevisionRef = useRef<number>(-1);
+  const cachedBuildingsRef = useRef<TileData[]>([]);
+
+  // Scan building tiles only when buildingRevision changes
   const buildingTiles = useMemo(() => {
+    if (cachedBuildingsRef.current.length > 0 && prevRevisionRef.current === buildingRevision) {
+      return cachedBuildingsRef.current;
+    }
+
+    prevRevisionRef.current = buildingRevision;
     const list: TileData[] = [];
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
@@ -42,10 +57,11 @@ export function InstancedBuildingRenderer({ grid, nightFactor }: InstancedBuildi
         }
       }
     }
+    cachedBuildingsRef.current = list;
     return list;
-  }, [grid, width, height]);
+  }, [buildingRevision, grid, width, height]);
 
-  // Update instanced transforms and colors
+  // Update instance transforms (only when buildingRevision changes)
   useEffect(() => {
     if (!meshRef.current) return;
     const mesh = meshRef.current;
@@ -79,12 +95,11 @@ export function InstancedBuildingRenderer({ grid, nightFactor }: InstancedBuildi
 
       mesh.setMatrixAt(i, dummyMatrix);
 
-      // Color selection
+      // Initial color assignment
       const palette = ZONE_COLORS[tile.type] || ['#94a3b8'];
       const baseColorHex = palette[(lvl - 1) % palette.length];
       dummyColor.set(tile.abandoned ? '#475569' : baseColorHex);
 
-      // Night illumination glow effect for powered active buildings
       if (nightFactor > 0.2 && tile.powered && !tile.abandoned && tile.type !== TileType.PARK) {
         dummyColor.lerp(new THREE.Color('#fef08a'), nightFactor * 0.4);
       }
@@ -94,7 +109,34 @@ export function InstancedBuildingRenderer({ grid, nightFactor }: InstancedBuildi
 
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [buildingTiles, width, height, nightFactor]);
+
+    if (onBuildingBatchUpdate) {
+      onBuildingBatchUpdate(1);
+    }
+  }, [buildingRevision, buildingTiles, width, height, onBuildingBatchUpdate]);
+
+  // Fast-path color updates on night cycle change without recalculating matrices
+  useEffect(() => {
+    if (!meshRef.current) return;
+    const mesh = meshRef.current;
+    const count = buildingTiles.length;
+
+    for (let i = 0; i < count; i++) {
+      const tile = buildingTiles[i];
+      const lvl = Math.max(1, Math.min(5, tile.level || 1));
+      const palette = ZONE_COLORS[tile.type] || ['#94a3b8'];
+      const baseColorHex = palette[(lvl - 1) % palette.length];
+      dummyColor.set(tile.abandoned ? '#475569' : baseColorHex);
+
+      if (nightFactor > 0.2 && tile.powered && !tile.abandoned && tile.type !== TileType.PARK) {
+        dummyColor.lerp(new THREE.Color('#fef08a'), nightFactor * 0.4);
+      }
+
+      mesh.setColorAt(i, dummyColor);
+    }
+
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [nightFactor, buildingTiles]);
 
   const maxInstances = Math.max(1, buildingTiles.length);
 

@@ -330,3 +330,82 @@ export const MAINTENANCE_COSTS: Record<TileType, number> = {
   [TileType.PARK]: GAME_CONFIG.MAINTENANCE_COSTS.PARK,
 };
 
+// ==========================================
+// Performance & Incremental Architecture Types
+// ==========================================
+
+export interface WorldRevisions {
+  terrainRevision: number;
+  roadRevision: number;
+  buildingRevision: number;
+  vehicleRevision: number;
+  pedestrianRevision: number;
+  simulationStatsRevision: number;
+}
+
+export interface CompactTileUpdate {
+  x: number;
+  y: number;
+  type?: TileType;
+  level?: number;
+  elevation?: number;
+  water?: boolean;
+  powered?: boolean;
+  watered?: boolean;
+  population?: number;
+  jobs?: number;
+  abandoned?: boolean;
+  traffic?: number;
+  landValue?: number;
+  pollution?: number;
+  noise?: number;
+  crime?: number;
+}
+
+export type SimulationCommandType =
+  | 'BUILD_ROAD'
+  | 'BUILD_ZONE'
+  | 'BULLDOZE'
+  | 'TERRAFORM'
+  | 'SET_TAX'
+  | 'SET_POLICY'
+  | 'UNLOCK_REGION'
+  | 'UNLOCK_TECH'
+  | 'LOAD_STATE'
+  | 'CHANGE_SPEED'
+  | 'CLAIM_REWARD';
+
+export interface SimulationCommand {
+  type: SimulationCommandType;
+  payload?: any;
+}
+
+export interface SimulationTickDelta {
+  type: 'TICK_DELTA';
+  stats: Partial<CityState>;
+  changedTiles: CompactTileUpdate[];
+  dirtyTerrainChunkKeys: string[];
+  dirtyRoadChunkKeys: string[];
+  dirtyBuildingChunkKeys: string[];
+  revisions: WorldRevisions;
+  vehicles: SimulatedVehicle[];
+  pedestrians: SimulatedPedestrian[];
+  durationMs: number;
+  payloadSizeBytes: number;
+  changedChunksCount: number;
+}
+
+export interface EngineProfilerMetrics {
+  terrainRebuildCount: number;
+  roadRebuildCount: number;
+  buildingBatchUpdateCount: number;
+  workerMessageSize: number;
+  changedChunksPerTick: number;
+  simulationTickTime: number;
+  renderFrameTime: number;
+  drawCalls: number;
+  visibleChunks: number;
+  fps: number;
+}
+
+

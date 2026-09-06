@@ -330,11 +330,18 @@ export class SimulationEngine {
   public chunkManager = new ChunkManager(GRID_WIDTH, GRID_HEIGHT);
 
   public simulateTick(prevState: CityState): CityState {
+    const nextGrid: TileData[][] = prevState.grid.map((row) => row.map((t) => ({ ...t })));
+    return this.runSimulationOnGrid(prevState, nextGrid);
+  }
+
+  public simulateTickInPlace(state: CityState): CityState {
+    return this.runSimulationOnGrid(state, state.grid);
+  }
+
+  private runSimulationOnGrid(prevState: CityState, nextGrid: TileData[][]): CityState {
     const resTax = prevState.residentialTaxRate ?? GAME_CONFIG.DEFAULT_TAX_RATE;
     const comTax = prevState.commercialTaxRate ?? GAME_CONFIG.DEFAULT_TAX_RATE;
     const indTax = prevState.industrialTaxRate ?? GAME_CONFIG.DEFAULT_TAX_RATE;
-
-    const nextGrid: TileData[][] = prevState.grid.map((row) => row.map((t) => ({ ...t })));
 
     let activeEvents: ActiveEvent[] = (prevState.activeEvents || [])
       .map((ev) => ({ ...ev, remainingDays: ev.remainingDays - 1 }))
@@ -502,4 +509,8 @@ const defaultEngine = new SimulationEngine();
 
 export function simulateTick(prevState: CityState): CityState {
   return defaultEngine.simulateTick(prevState);
+}
+
+export function simulateTickInPlace(state: CityState): CityState {
+  return defaultEngine.simulateTickInPlace(state);
 }

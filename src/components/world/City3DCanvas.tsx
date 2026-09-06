@@ -1,7 +1,15 @@
 import React, { useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
-import { TileData, TileType, OverlayMode, SimulatedVehicle, SimulatedPedestrian, GraphicsQualityTier } from '../../types';
+import {
+  TileData,
+  TileType,
+  OverlayMode,
+  SimulatedVehicle,
+  SimulatedPedestrian,
+  GraphicsQualityTier,
+  WorldRevisions,
+} from '../../types';
 import { DayNightSky } from './DayNightSky';
 import { CameraController } from './CameraController';
 import { ChunkTerrainRenderer } from '../../rendering/ChunkTerrainRenderer';
@@ -11,8 +19,12 @@ import { EnvironmentProps } from './EnvironmentProps';
 import { InstancedVehicleRenderer } from '../../rendering/InstancedVehicleRenderer';
 import { InstancedPedestrianRenderer } from '../../rendering/InstancedPedestrianRenderer';
 
-interface City3DCanvasProps {
+export interface City3DCanvasProps {
   grid: TileData[][];
+  revisions: WorldRevisions;
+  dirtyTerrainChunks?: Set<string>;
+  dirtyRoadChunks?: Set<string>;
+  dirtyBuildingChunks?: Set<string>;
   day: number;
   speed: number;
   activeTool: TileType | 'POINTER' | 'BULLDOZER' | 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN';
@@ -31,6 +43,10 @@ interface City3DCanvasProps {
   onTileAction: (x: number, y: number) => void;
   onTilePointerEnter: (x: number, y: number) => void;
   onUnlockRegion?: (rx: number, ry: number) => void;
+  onChunkRebuild?: (count: number) => void;
+  onRoadRebuild?: (count: number) => void;
+  onBuildingBatchUpdate?: (count: number) => void;
+  onVisibleChunksChange?: (count: number) => void;
   dragPreviewTiles?: [number, number][];
   dragPreviewColor?: string;
   activeVehicles?: SimulatedVehicle[];
@@ -39,16 +55,16 @@ interface City3DCanvasProps {
 
 function City3DCanvasBase({
   grid,
+  revisions,
+  dirtyTerrainChunks,
   day,
   speed,
   activeTool,
   activeOverlay = 'NONE',
-  unlockedRegions = ['1,1'],
   viewMode,
   zoom,
   pitch,
   rotation,
-  mapExpansionMode = false,
   brushSize = 1,
   graphicsQuality = 'high',
   showChunkBoundaries = false,
@@ -56,7 +72,10 @@ function City3DCanvasBase({
   showRoadSegments = false,
   onTileAction,
   onTilePointerEnter,
-  onUnlockRegion,
+  onChunkRebuild,
+  onRoadRebuild,
+  onBuildingBatchUpdate,
+  onVisibleChunksChange,
   dragPreviewTiles = [],
   dragPreviewColor = 'green',
   activeVehicles = [],
@@ -110,9 +129,11 @@ function City3DCanvasBase({
           gridHeight={gridHeight}
         />
 
-        {/* Batched Chunk Terrain Rendering with Smooth Shorelines & LOD */}
+        {/* Batched Chunk Terrain Rendering with Incremental Geometry Caching & LOD */}
         <ChunkTerrainRenderer
           grid={grid}
+          terrainRevision={revisions.terrainRevision}
+          dirtyTerrainChunks={dirtyTerrainChunks}
           activeTool={activeTool}
           activeOverlay={activeOverlay}
           brushSize={brushSize}
@@ -121,6 +142,8 @@ function City3DCanvasBase({
           showTerrainLOD={showTerrainLOD}
           onTileClick={onTileAction}
           onTilePointerEnter={onTilePointerEnter}
+          onChunkRebuild={onChunkRebuild}
+          onVisibleChunksChange={onVisibleChunksChange}
           dragPreviewTiles={dragPreviewTiles}
           dragPreviewColor={dragPreviewColor}
         />
@@ -128,12 +151,19 @@ function City3DCanvasBase({
         {/* Procedural Instanced Spline Road Network with Continuous Lanes & Bridges */}
         <SplineRoadRenderer
           grid={grid}
+          roadRevision={revisions.roadRevision}
           nightFactor={nightFactor}
           showRoadSegments={showRoadSegments}
+          onRoadRebuild={onRoadRebuild}
         />
 
         {/* GPU Instanced Building Rendering (Batched by level and zone type) */}
-        <InstancedBuildingRenderer grid={grid} nightFactor={nightFactor} />
+        <InstancedBuildingRenderer
+          grid={grid}
+          buildingRevision={revisions.buildingRevision}
+          nightFactor={nightFactor}
+          onBuildingBatchUpdate={onBuildingBatchUpdate}
+        />
 
         {/* Clustered Tree Groves & Rock Formations Anchored to Terrain Surface */}
         <EnvironmentProps grid={grid} graphicsQuality={graphicsQuality} />
@@ -157,30 +187,31 @@ function City3DCanvasBase({
   );
 }
 
-// Custom memo equality to completely bypass 3D re-renders unless visual 3D props actually change
-export const City3DCanvas = React.memo(City3DCanvasBase, (prevProps, nextProps) => {
+// Precision memo equality: completely bypasses 3D Canvas re-renders unless visual 3D revisions actually change!
+export const City3DCanvas = React.memo(City3DCanvasBase, (prev, next) => {
   if (
-    prevProps.grid !== nextProps.grid ||
-    prevProps.day !== nextProps.day ||
-    prevProps.speed !== nextProps.speed ||
-    prevProps.activeTool !== nextProps.activeTool ||
-    prevProps.activeOverlay !== nextProps.activeOverlay ||
-    prevProps.brushSize !== nextProps.brushSize ||
-    prevProps.graphicsQuality !== nextProps.graphicsQuality ||
-    prevProps.showChunkBoundaries !== nextProps.showChunkBoundaries ||
-    prevProps.showTerrainLOD !== nextProps.showTerrainLOD ||
-    prevProps.showRoadSegments !== nextProps.showRoadSegments ||
-    prevProps.viewMode !== nextProps.viewMode ||
-    prevProps.zoom !== nextProps.zoom ||
-    prevProps.pitch !== nextProps.pitch ||
-    prevProps.rotation !== nextProps.rotation ||
-    prevProps.dragPreviewColor !== nextProps.dragPreviewColor ||
-    prevProps.dragPreviewTiles?.length !== nextProps.dragPreviewTiles?.length ||
-    prevProps.activeVehicles?.length !== nextProps.activeVehicles?.length ||
-    prevProps.activePedestrians?.length !== nextProps.activePedestrians?.length
+    prev.revisions.terrainRevision !== next.revisions.terrainRevision ||
+    prev.revisions.roadRevision !== next.revisions.roadRevision ||
+    prev.revisions.buildingRevision !== next.revisions.buildingRevision ||
+    prev.revisions.vehicleRevision !== next.revisions.vehicleRevision ||
+    prev.revisions.pedestrianRevision !== next.revisions.pedestrianRevision ||
+    prev.day !== next.day ||
+    prev.speed !== next.speed ||
+    prev.activeTool !== next.activeTool ||
+    prev.activeOverlay !== next.activeOverlay ||
+    prev.brushSize !== next.brushSize ||
+    prev.graphicsQuality !== next.graphicsQuality ||
+    prev.showChunkBoundaries !== next.showChunkBoundaries ||
+    prev.showTerrainLOD !== next.showTerrainLOD ||
+    prev.showRoadSegments !== next.showRoadSegments ||
+    prev.viewMode !== next.viewMode ||
+    prev.zoom !== next.zoom ||
+    prev.pitch !== next.pitch ||
+    prev.rotation !== next.rotation ||
+    prev.dragPreviewColor !== next.dragPreviewColor ||
+    prev.dragPreviewTiles?.length !== next.dragPreviewTiles?.length
   ) {
     return false; // Re-render needed
   }
   return true; // Skip re-render
 });
-

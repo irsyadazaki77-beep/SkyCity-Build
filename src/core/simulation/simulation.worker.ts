@@ -1,29 +1,45 @@
-import { CityState } from '../../types';
-import { simulateTick } from './SimulationEngine';
+import { CityState, SimulationCommand } from '../../types';
+import { AuthoritativeSimulation } from './AuthoritativeSimulation';
 
-let currentState: CityState | null = null;
+let simulation: AuthoritativeSimulation | null = null;
 
 self.onmessage = (e: MessageEvent) => {
   const { type, payload } = e.data || {};
 
   if (type === 'INIT') {
-    currentState = payload;
-    self.postMessage({ type: 'INIT_ACK' });
-  } else if (type === 'SYNC') {
-    currentState = payload;
-  } else if (type === 'TICK') {
-    const inputState = payload || currentState;
-    if (!inputState) return;
+    simulation = new AuthoritativeSimulation(payload as CityState);
+    self.postMessage({
+      type: 'INIT_ACK',
+      revisions: simulation.getRevisions(),
+    });
+  } else if (type === 'COMMAND') {
+    if (!simulation) return;
+    const cmd = payload as SimulationCommand;
+    const result = simulation.executeCommand(cmd);
+    const fullState = simulation.getState();
 
-    const t0 = performance.now();
-    const nextState = simulateTick(inputState);
-    const durationMs = performance.now() - t0;
-    currentState = nextState;
+    // Compact stats delta (omit grid for minimal message size)
+    const { grid: _omit, ...statsDelta } = fullState;
 
     self.postMessage({
-      type: 'TICK_RESULT',
-      state: nextState,
-      durationMs,
+      type: 'COMMAND_RESULT',
+      commandType: cmd.type,
+      revisions: result.revisions,
+      dirtyTerrain: result.dirtyTerrain,
+      dirtyRoads: result.dirtyRoads,
+      dirtyBuildings: result.dirtyBuildings,
+      stats: statsDelta,
+    });
+  } else if (type === 'TICK') {
+    if (!simulation) return;
+    const delta = simulation.stepTick();
+    self.postMessage(delta);
+  } else if (type === 'GET_FULL_STATE') {
+    if (!simulation) return;
+    self.postMessage({
+      type: 'FULL_STATE_RESULT',
+      state: simulation.getState(),
+      revisions: simulation.getRevisions(),
     });
   }
 };
