@@ -28,13 +28,13 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay }: InfoViewsTo
 
   if (!isOpen) {
     return (
-      <div className="absolute bottom-28 left-4 z-40">
+      <div className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] left-[calc(env(safe-area-inset-left,0px)+0.75rem)] z-35">
         <button
           onClick={() => setIsOpen(true)}
-          className="p-2.5 bg-[#0f172a]/90 backdrop-blur-md border border-white/10 rounded-full shadow-lg text-gray-300 hover:text-white transition-all hover:scale-105"
+          className="p-2.5 sm:p-3 bg-[#0f172a]/95 backdrop-blur-md border border-white/10 rounded-full shadow-lg text-gray-300 hover:text-white transition-all hover:scale-105 min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] flex items-center justify-center"
           title="Info Views"
         >
-          <Eye size={20} />
+          <Eye size={18} className="sm:w-5 sm:h-5" />
         </button>
       </div>
     );
@@ -45,7 +45,7 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay }: InfoViewsTo
     return (
       <button
         onClick={() => onSelectOverlay(isActive ? 'NONE' : mode)}
-        className={`w-10 h-10 flex items-center justify-center rounded-xl transition-all ${
+        className={`w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-xl transition-all ${
           isActive
             ? `${colorClass} shadow-inner`
             : 'text-gray-400 hover:bg-white/5 hover:text-white'
@@ -58,7 +58,7 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay }: InfoViewsTo
   };
 
   return (
-    <div className="absolute bottom-28 left-4 z-40 bg-[#0f172a]/90 backdrop-blur-md border border-white/10 rounded-2xl p-2 shadow-2xl flex flex-col gap-1 animate-in fade-in slide-in-from-left-2 duration-200">
+    <div className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] left-[calc(env(safe-area-inset-left,0px)+0.75rem)] z-35 bg-[#0f172a]/95 backdrop-blur-md border border-white/10 rounded-2xl p-2 shadow-2xl flex flex-col gap-1 max-h-[50vh] sm:max-h-[60vh] max-w-[240px] sm:max-w-[280px] overflow-y-auto custom-scrollbar animate-in fade-in slide-in-from-left-2 duration-200">
       
       <div className="flex items-center justify-between px-2 py-1 mb-1 border-b border-white/10">
         <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">Info Views</span>

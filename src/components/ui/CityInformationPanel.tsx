@@ -12,7 +12,9 @@ import {
   Droplet,
   Trash2,
   GraduationCap,
-  HeartPulse
+  HeartPulse,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { HistoryRecord } from '../../types';
 
@@ -71,53 +73,71 @@ type TabType = 'OVERVIEW' | 'POPULATION' | 'ECONOMY' | 'SERVICES' | 'TRAFFIC' | 
 
 export function CityInformationPanel(props: CityInformationPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>('OVERVIEW');
+  const [isMinimized, setIsMinimized] = useState(false);
 
   if (!props.isOpen) return null;
 
   const renderTabButton = (tab: TabType, icon: React.ReactNode, label: string) => (
     <button
       onClick={() => setActiveTab(tab)}
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors whitespace-nowrap min-h-[36px] ${
         activeTab === tab
           ? 'bg-blue-500/20 text-blue-300 font-semibold'
           : 'text-gray-400 hover:text-white hover:bg-white/5'
       }`}
     >
       {icon}
-      {label}
+      <span>{label}</span>
     </button>
   );
 
   return (
-    <div className="absolute top-16 left-4 bottom-24 w-80 bg-[#0f172a]/80 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex flex-col pointer-events-auto z-40 overflow-hidden animate-in slide-in-from-left-4 duration-300">
+    <div className={`fixed sm:absolute bottom-0 sm:bottom-auto left-0 right-0 sm:left-4 sm:right-auto w-full sm:w-80 md:w-96 bg-[#0f172a]/95 sm:bg-[#0f172a]/90 backdrop-blur-xl border border-white/10 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col pointer-events-auto z-35 overflow-hidden animate-in slide-in-from-bottom sm:slide-in-from-left-4 duration-300 border-b-0 sm:border-b ${
+      isMinimized 
+        ? 'h-[52px] sm:h-auto sm:top-20 sm:bottom-auto pb-[calc(env(safe-area-inset-bottom,0px)+0.25rem)]' 
+        : 'h-[58vh] max-h-[520px] sm:h-auto sm:top-20 sm:bottom-auto sm:max-h-[75vh] pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] sm:pb-0'
+    }`}>
       
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-white/10 bg-black/20">
-        <h2 className="text-white font-bold text-lg">City Information</h2>
-        <button onClick={props.onClose} className="text-gray-400 hover:text-white transition-colors">
-          <X size={20} />
-        </button>
+      <div className="flex items-center justify-between p-3 border-b border-white/10 bg-black/20">
+        <h2 className="text-white font-bold text-base">City Information</h2>
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={() => setIsMinimized(!isMinimized)} 
+            className="text-gray-400 hover:text-white transition-colors p-1.5 hover:bg-white/5 rounded-lg"
+            title={isMinimized ? "Expand" : "Collapse"}
+          >
+            {isMinimized ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+          </button>
+          <button onClick={props.onClose} className="text-gray-400 hover:text-white transition-colors p-1.5 hover:bg-white/5 rounded-lg">
+            <X size={18} />
+          </button>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-1 p-2 border-b border-white/10 bg-black/10">
-        {renderTabButton('OVERVIEW', <TrendingUp size={16} />, 'Overview')}
-        {renderTabButton('POPULATION', <Users size={16} />, 'Population')}
-        {renderTabButton('ECONOMY', <DollarSign size={16} />, 'Economy')}
-        {renderTabButton('SERVICES', <Shield size={16} />, 'Services')}
-        {renderTabButton('TRAFFIC', <Car size={16} />, 'Traffic')}
-        {renderTabButton('ENVIRONMENT', <Leaf size={16} />, 'Environment')}
-      </div>
+      {!isMinimized && (
+        <>
+          {/* Tabs */}
+          <div className="flex gap-1 p-2 border-b border-white/10 bg-black/10 overflow-x-auto no-scrollbar flex-nowrap">
+            {renderTabButton('OVERVIEW', <TrendingUp size={14} />, 'Overview')}
+            {renderTabButton('POPULATION', <Users size={14} />, 'Population')}
+            {renderTabButton('ECONOMY', <DollarSign size={14} />, 'Economy')}
+            {renderTabButton('SERVICES', <Shield size={14} />, 'Services')}
+            {renderTabButton('TRAFFIC', <Car size={14} />, 'Traffic')}
+            {renderTabButton('ENVIRONMENT', <Leaf size={14} />, 'Environment')}
+          </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-        {activeTab === 'OVERVIEW' && <OverviewTab {...props} />}
-        {activeTab === 'POPULATION' && <PopulationTab {...props} />}
-        {activeTab === 'ECONOMY' && <EconomyTab {...props} />}
-        {activeTab === 'SERVICES' && <ServicesTab {...props} />}
-        {activeTab === 'TRAFFIC' && <TrafficTab {...props} />}
-        {activeTab === 'ENVIRONMENT' && <EnvironmentTab {...props} />}
-      </div>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            {activeTab === 'OVERVIEW' && <OverviewTab {...props} />}
+            {activeTab === 'POPULATION' && <PopulationTab {...props} />}
+            {activeTab === 'ECONOMY' && <EconomyTab {...props} />}
+            {activeTab === 'SERVICES' && <ServicesTab {...props} />}
+            {activeTab === 'TRAFFIC' && <TrafficTab {...props} />}
+            {activeTab === 'ENVIRONMENT' && <EnvironmentTab {...props} />}
+          </div>
+        </>
+      )}
     </div>
   );
 }

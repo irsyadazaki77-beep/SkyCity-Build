@@ -47,7 +47,7 @@ export function NotificationCenter({
   };
 
   return (
-    <div className="absolute top-20 right-6 z-40 bg-[#0f172a]/95 backdrop-blur-md border border-white/10 rounded-2xl p-4 shadow-2xl w-80 max-h-[70vh] flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-200 text-gray-200">
+    <div className="fixed sm:absolute top-[calc(env(safe-area-inset-top,0px)+3.75rem)] right-2 left-2 sm:left-auto sm:right-6 w-auto sm:w-88 max-h-[70vh] bg-[#0f172a]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-3 sm:p-4 shadow-2xl flex flex-col gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 text-gray-200 z-45">
       
       {/* Header */}
       <div className="flex items-center justify-between border-b border-white/10 pb-2">
@@ -60,7 +60,11 @@ export function NotificationCenter({
             </span>
           )}
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5">
+        <button 
+          onClick={onClose} 
+          className="text-gray-400 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/5 min-h-[36px] min-w-[36px] flex items-center justify-center"
+          aria-label="Close Notifications"
+        >
           <X size={16} />
         </button>
       </div>

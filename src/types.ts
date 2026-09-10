@@ -371,12 +371,18 @@ export interface CompactTileUpdate {
   crime?: number;
 }
 
+export interface SetTaxPayload {
+  residential: number;
+  commercial: number;
+  industrial: number;
+}
+
 export type SimulationCommand =
   | { type: 'BUILD_ROAD'; payload: { tiles: [number, number][] } }
   | { type: 'BUILD_ZONE'; payload: { tiles: [number, number][]; type: TileType } }
   | { type: 'BULLDOZE'; payload: { tiles: [number, number][] } }
   | { type: 'TERRAFORM'; payload: { tiles: [number, number][]; tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN'; centerElevation?: number } }
-  | { type: 'SET_TAX'; payload: { zoneType?: 'residential' | 'commercial' | 'industrial'; rate?: number; residential?: number; commercial?: number; industrial?: number; res?: number; com?: number; ind?: number } }
+  | { type: 'SET_TAX'; payload: SetTaxPayload }
   | { type: 'SET_POLICY'; payload: { policyId: string; active: boolean } }
   | { type: 'UNLOCK_REGION'; payload: { rx: number; ry: number } }
   | { type: 'UNLOCK_TECH'; payload: { techId: string } }
@@ -404,6 +410,7 @@ export interface SimulationCommandResult {
   reason?: CommandFailureReason;
   stateVersion: number;
   stats?: Partial<CityState>;
+  fullState?: CityState;
   changedTiles?: CompactTileUpdate[];
   dirtyTerrain?: string[];
   dirtyRoads?: string[];

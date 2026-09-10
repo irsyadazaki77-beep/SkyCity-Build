@@ -194,6 +194,9 @@ function City3DCanvasBase({
           grid={grid}
           buildings={buildings}
           buildingRevision={revisions.buildingRevision}
+          dirtyBuildingChunks={dirtyBuildingChunks}
+          activeOverlay={activeOverlay}
+          graphicsQuality={graphicsQuality}
           onBuildingBatchUpdate={onBuildingBatchUpdate}
         />
 
@@ -258,7 +261,17 @@ export const City3DCanvas = React.memo(City3DCanvasBase, (prev, next) => {
     prev.pitch !== next.pitch ||
     prev.rotation !== next.rotation ||
     prev.dragPreviewColor !== next.dragPreviewColor ||
-    prev.dragPreviewTiles?.length !== next.dragPreviewTiles?.length
+    (() => {
+      const p = prev.dragPreviewTiles;
+      const n = next.dragPreviewTiles;
+      if (!p && !n) return false;
+      if (!p || !n) return true;
+      if (p.length !== n.length) return true;
+      for (let i = 0; i < p.length; i++) {
+        if (p[i][0] !== n[i][0] || p[i][1] !== n[i][1]) return true;
+      }
+      return false;
+    })()
   ) {
     return false; // Re-render needed
   }

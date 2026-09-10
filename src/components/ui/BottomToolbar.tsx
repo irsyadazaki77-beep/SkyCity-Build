@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   MousePointer2, 
   Eraser, 
@@ -20,7 +20,8 @@ import {
   ArrowDown,
   Minus,
   Sparkles,
-  Expand
+  Expand,
+  Hammer
 } from 'lucide-react';
 import { TileType, BUILD_COSTS } from '../../types';
 import { isBuildingUnlocked } from '../../progression';
@@ -38,6 +39,29 @@ interface BottomToolbarProps {
   setMapExpansionMode?: (mode: boolean) => void;
 }
 
+function getCategoryFromTool(tool: any): CategoryType {
+  if (tool === 'POINTER') return 'SELECT';
+  if (tool === 'BULLDOZER') return 'BULLDOZE';
+  if (tool === TileType.ROAD) return 'ROADS';
+  if (tool === TileType.RESIDENTIAL || tool === TileType.COMMERCIAL || tool === TileType.INDUSTRIAL) return 'ZONING';
+  if (tool === TileType.POWER_PLANT || tool === TileType.WATER_PUMP) return 'UTILITIES';
+  if (
+    tool === TileType.FIRE_STATION || 
+    tool === TileType.POLICE_STATION || 
+    tool === TileType.CLINIC || 
+    tool === TileType.SCHOOL || 
+    tool === TileType.WASTE_MANAGEMENT
+  ) return 'SERVICES';
+  if (
+    tool === 'RAISE_TERRAIN' || 
+    tool === 'LOWER_TERRAIN' || 
+    tool === 'LEVEL_TERRAIN' || 
+    tool === 'SMOOTH_TERRAIN' || 
+    tool === TileType.PARK
+  ) return 'LANDSCAPING';
+  return 'SELECT';
+}
+
 export function BottomToolbar({ 
   activeTool, 
   setActiveTool, 
@@ -48,141 +72,224 @@ export function BottomToolbar({
   mapExpansionMode = false,
   setMapExpansionMode
 }: BottomToolbarProps) {
-  const [selectedCategory, setSelectedCategory] = useState<CategoryType>('SELECT');
+  const activeCategory = getCategoryFromTool(activeTool);
+  
+  // Track whether the build drawer is visible.
+  // It is visible if the active tool is a build tool, or if the user explicitly opened it.
+  const isBuildingMode = activeCategory !== 'SELECT' && activeCategory !== 'BULLDOZE';
+  const [isBuildDrawerOpen, setIsBuildDrawerOpen] = useState(isBuildingMode);
+  const [selectedBuildCategory, setSelectedBuildCategory] = useState<'ROADS' | 'ZONING' | 'UTILITIES' | 'SERVICES' | 'LANDSCAPING'>('ROADS');
 
-  const handleSelectCategory = (cat: CategoryType) => {
-    setSelectedCategory(cat);
+  // Keep state in sync with external changes
+  useEffect(() => {
+    if (isBuildingMode) {
+      setIsBuildDrawerOpen(true);
+      const cat = activeCategory as any;
+      if (['ROADS', 'ZONING', 'UTILITIES', 'SERVICES', 'LANDSCAPING'].includes(cat)) {
+        setSelectedBuildCategory(cat);
+      }
+    } else {
+      setIsBuildDrawerOpen(false);
+    }
+  }, [activeTool]);
+
+  const handleInspectClick = () => {
+    setActiveTool('POINTER');
+    setIsBuildDrawerOpen(false);
+    if (setMapExpansionMode) setMapExpansionMode(false);
+  };
+
+  const handleDemolishClick = () => {
+    setActiveTool('BULLDOZER');
+    setIsBuildDrawerOpen(false);
+    if (setMapExpansionMode) setMapExpansionMode(false);
+  };
+
+  const handleBuildClick = () => {
+    if (isBuildDrawerOpen) {
+      // Toggle off to inspect mode
+      handleInspectClick();
+    } else {
+      setIsBuildDrawerOpen(true);
+      // Default to last selected build category or Roads
+      handleSelectCategory(selectedBuildCategory);
+    }
+  };
+
+  const handleSelectCategory = (cat: 'ROADS' | 'ZONING' | 'UTILITIES' | 'SERVICES' | 'LANDSCAPING') => {
+    setSelectedBuildCategory(cat);
     if (setMapExpansionMode && mapExpansionMode) {
       setMapExpansionMode(false);
     }
-    if (cat === 'SELECT') {
-      setActiveTool('POINTER');
-    } else if (cat === 'BULLDOZE') {
-      setActiveTool('BULLDOZER');
-    } else if (cat === 'ROADS') {
+    
+    if (cat === 'ROADS') {
       setActiveTool(TileType.ROAD);
+    } else if (cat === 'ZONING') {
+      setActiveTool(TileType.RESIDENTIAL);
+    } else if (cat === 'UTILITIES') {
+      setActiveTool(TileType.POWER_PLANT);
+    } else if (cat === 'SERVICES') {
+      setActiveTool(TileType.FIRE_STATION);
     } else if (cat === 'LANDSCAPING') {
       setActiveTool('RAISE_TERRAIN');
     }
   };
 
-  const isTerraformingActive = ['RAISE_TERRAIN', 'LOWER_TERRAIN', 'LEVEL_TERRAIN', 'SMOOTH_TERRAIN'].includes(activeTool as string);
-
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-1 w-full max-w-4xl px-4 pointer-events-none select-none">
+    <div className="fixed bottom-0 pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 w-full max-w-lg px-2 sm:px-4 pointer-events-none select-none">
       
-      {/* Secondary Toolbar (Sub-menu) */}
-      <div className="pointer-events-auto flex items-center justify-center min-h-[48px] w-full">
-        {selectedCategory === 'ZONING' && (
-          <div className="bg-[#1e293b]/90 backdrop-blur-md border border-white/10 p-1 rounded-xl flex items-center shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <SubToolButton icon={<Home size={18} className="text-[#10b981]" />} label="Residential" type={TileType.RESIDENTIAL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-            <SubToolButton icon={<Briefcase size={18} className="text-[#3b82f6]" />} label="Commercial" type={TileType.COMMERCIAL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-            <SubToolButton icon={<Factory size={18} className="text-[#eab308]" />} label="Industrial" type={TileType.INDUSTRIAL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-          </div>
-        )}
-
-        {selectedCategory === 'UTILITIES' && (
-          <div className="bg-[#1e293b]/90 backdrop-blur-md border border-white/10 p-1 rounded-xl flex items-center shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <SubToolButton icon={<Zap size={18} className="text-yellow-400" />} label="Power Plant" type={TileType.POWER_PLANT} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-            <SubToolButton icon={<Droplet size={18} className="text-cyan-400" />} label="Water Pump" type={TileType.WATER_PUMP} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-          </div>
-        )}
-
-        {selectedCategory === 'SERVICES' && (
-          <div className="bg-[#1e293b]/90 backdrop-blur-md border border-white/10 p-1 rounded-xl flex items-center shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <SubToolButton icon={<Flame size={18} className="text-red-400" />} label="Fire Station" type={TileType.FIRE_STATION} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-            <SubToolButton icon={<Shield size={18} className="text-blue-400" />} label="Police HQ" type={TileType.POLICE_STATION} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-            <SubToolButton icon={<HeartPulse size={18} className="text-teal-400" />} label="Clinic" type={TileType.CLINIC} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-            <SubToolButton icon={<GraduationCap size={18} className="text-amber-400" />} label="School" type={TileType.SCHOOL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-            <SubToolButton icon={<Trash2 size={18} className="text-slate-400" />} label="Waste Plant" type={TileType.WASTE_MANAGEMENT} {...{activeTool, setActiveTool, money, milestoneLevel}} />
-          </div>
-        )}
-
-        {selectedCategory === 'LANDSCAPING' && (
-          <div className="bg-[#1e293b]/95 backdrop-blur-md border border-white/10 p-2 rounded-2xl flex flex-col md:flex-row items-center gap-3 shadow-2xl animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-full">
-            {/* Tools list */}
-            <div className="flex items-center gap-1.5 border-r border-white/10 pr-3 mr-1">
-              <button
-                onClick={() => { setActiveTool('RAISE_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 min-w-[65px] transition-all ${activeTool === 'RAISE_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
-              >
-                <ArrowUp size={16} className="text-cyan-400" />
-                <span className="text-[10px] font-mono">$15/tile</span>
-              </button>
-              <button
-                onClick={() => { setActiveTool('LOWER_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 min-w-[65px] transition-all ${activeTool === 'LOWER_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
-              >
-                <ArrowDown size={16} className="text-cyan-400" />
-                <span className="text-[10px] font-mono">$15/tile</span>
-              </button>
-              <button
-                onClick={() => { setActiveTool('LEVEL_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 min-w-[65px] transition-all ${activeTool === 'LEVEL_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
-              >
-                <Minus size={16} className="text-cyan-400" />
-                <span className="text-[10px] font-mono">$15/tile</span>
-              </button>
-              <button
-                onClick={() => { setActiveTool('SMOOTH_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
-                className={`p-2 rounded-lg flex flex-col items-center gap-1 min-w-[65px] transition-all ${activeTool === 'SMOOTH_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
-              >
-                <Sparkles size={16} className="text-cyan-400" />
-                <span className="text-[10px] font-mono">$15/tile</span>
-              </button>
-              <SubToolButton icon={<Trees size={18} className="text-[#10b981]" />} label="City Park" type={TileType.PARK} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+      {/* TIER 3: Active Sub-Tools Panel (Floats at the very top of the construction dock) */}
+      {isBuildDrawerOpen && (
+        <div className="pointer-events-auto flex items-center justify-center min-h-[40px] sm:min-h-[44px] w-full max-w-full px-1">
+          {selectedBuildCategory === 'ZONING' && (
+            <div className="bg-[#1e293b]/95 backdrop-blur-md border border-white/10 p-1 rounded-xl flex items-center shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-full overflow-x-auto no-scrollbar whitespace-nowrap touch-pan-x">
+              <SubToolButton icon={<Home size={15} className="text-[#10b981]" />} label="Residential" type={TileType.RESIDENTIAL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+              <SubToolButton icon={<Briefcase size={15} className="text-[#3b82f6]" />} label="Commercial" type={TileType.COMMERCIAL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+              <SubToolButton icon={<Factory size={15} className="text-[#eab308]" />} label="Industrial" type={TileType.INDUSTRIAL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
             </div>
+          )}
 
-            {/* Brush Size Slider */}
-            {isTerraformingActive && setBrushSize && (
-              <div className="flex items-center gap-1 border-r border-white/10 pr-3 mr-1">
-                <span className="text-[10px] font-bold text-gray-400 mr-1.5">BRUSH:</span>
-                {[1, 2, 3].map((size) => (
-                  <button
-                    key={`brush-${size}`}
-                    onClick={() => setBrushSize(size)}
-                    className={`px-2.5 py-1 text-xs font-bold rounded ${brushSize === size ? 'bg-cyan-500 text-white shadow-inner' : 'bg-slate-700/50 text-gray-400 hover:bg-slate-700 hover:text-white'}`}
-                  >
-                    {size === 1 ? 'S' : size === 2 ? 'M' : 'L'}
-                  </button>
-                ))}
+          {selectedBuildCategory === 'UTILITIES' && (
+            <div className="bg-[#1e293b]/95 backdrop-blur-md border border-white/10 p-1 rounded-xl flex items-center shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-full overflow-x-auto no-scrollbar whitespace-nowrap touch-pan-x">
+              <SubToolButton icon={<Zap size={15} className="text-yellow-400" />} label="Power Plant" type={TileType.POWER_PLANT} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+              <SubToolButton icon={<Droplet size={15} className="text-cyan-400" />} label="Water Pump" type={TileType.WATER_PUMP} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+            </div>
+          )}
+
+          {selectedBuildCategory === 'SERVICES' && (
+            <div className="bg-[#1e293b]/95 backdrop-blur-md border border-white/10 p-1 rounded-xl flex items-center shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-full overflow-x-auto no-scrollbar whitespace-nowrap touch-pan-x">
+              <SubToolButton icon={<Flame size={15} className="text-red-400" />} label="Fire Station" type={TileType.FIRE_STATION} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+              <SubToolButton icon={<Shield size={15} className="text-blue-400" />} label="Police HQ" type={TileType.POLICE_STATION} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+              <SubToolButton icon={<HeartPulse size={15} className="text-teal-400" />} label="Clinic" type={TileType.CLINIC} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+              <SubToolButton icon={<GraduationCap size={15} className="text-amber-400" />} label="School" type={TileType.SCHOOL} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+              <SubToolButton icon={<Trash2 size={15} className="text-slate-400" />} label="Waste Plant" type={TileType.WASTE_MANAGEMENT} {...{activeTool, setActiveTool, money, milestoneLevel}} />
+            </div>
+          )}
+
+          {selectedBuildCategory === 'LANDSCAPING' && (
+            <div className="bg-[#1e293b]/95 backdrop-blur-md border border-white/10 p-1 rounded-xl flex items-center gap-1 shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200 max-w-full overflow-x-auto no-scrollbar whitespace-nowrap touch-pan-x">
+              {/* Terrain Tools */}
+              <div className="flex items-center gap-0.5 sm:gap-1 border-r border-white/10 pr-1.5 sm:pr-2 mr-1 flex-shrink-0">
+                <button
+                  onClick={() => { setActiveTool('RAISE_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
+                  className={`p-1 sm:p-1.5 rounded-lg flex flex-col items-center justify-center min-w-[42px] sm:min-w-[50px] min-h-[40px] sm:min-h-[44px] transition-all ${activeTool === 'RAISE_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
+                >
+                  <ArrowUp size={13} className="text-cyan-400" />
+                  <span className="text-[8px] sm:text-[9px] font-mono">$15</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTool('LOWER_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
+                  className={`p-1 sm:p-1.5 rounded-lg flex flex-col items-center justify-center min-w-[42px] sm:min-w-[50px] min-h-[40px] sm:min-h-[44px] transition-all ${activeTool === 'LOWER_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
+                >
+                  <ArrowDown size={13} className="text-cyan-400" />
+                  <span className="text-[8px] sm:text-[9px] font-mono">$15</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTool('LEVEL_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
+                  className={`p-1 sm:p-1.5 rounded-lg flex flex-col items-center justify-center min-w-[42px] sm:min-w-[50px] min-h-[40px] sm:min-h-[44px] transition-all ${activeTool === 'LEVEL_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
+                >
+                  <Minus size={13} className="text-cyan-400" />
+                  <span className="text-[8px] sm:text-[9px] font-mono">$15</span>
+                </button>
+                <button
+                  onClick={() => { setActiveTool('SMOOTH_TERRAIN'); if (setMapExpansionMode) setMapExpansionMode(false); }}
+                  className={`p-1 sm:p-1.5 rounded-lg flex flex-col items-center justify-center min-w-[42px] sm:min-w-[50px] min-h-[40px] sm:min-h-[44px] transition-all ${activeTool === 'SMOOTH_TERRAIN' ? 'bg-cyan-500/35 text-white' : 'text-gray-300 hover:bg-white/10'}`}
+                >
+                  <Sparkles size={13} className="text-cyan-400" />
+                  <span className="text-[8px] sm:text-[9px] font-mono">$15</span>
+                </button>
+                <SubToolButton icon={<Trees size={15} className="text-[#10b981]" />} label="City Park" type={TileType.PARK} {...{activeTool, setActiveTool, money, milestoneLevel}} />
               </div>
-            )}
 
-            {/* Region Unlock Land Expansion Toggle */}
-            {setMapExpansionMode && (
-              <button
-                onClick={() => {
-                  setMapExpansionMode(!mapExpansionMode);
-                  if (!mapExpansionMode) {
-                    setActiveTool('POINTER');
-                  }
-                }}
-                className={`p-2 rounded-xl flex items-center gap-2 transition-all ${mapExpansionMode ? 'bg-yellow-500/30 text-white border border-yellow-500/40' : 'text-gray-300 hover:bg-white/10 border border-transparent'}`}
-              >
-                <Expand size={16} className={mapExpansionMode ? 'text-yellow-400 animate-pulse' : 'text-yellow-400'} />
-                <span className="text-xs font-bold font-sans">Buy Regions ($50K)</span>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
+              {/* Brush Size */}
+              {setBrushSize && (
+                <div className="flex items-center gap-1 border-r border-white/10 pr-1.5 sm:pr-2 mr-1 flex-shrink-0">
+                  {[1, 2, 3].map((size) => (
+                    <button
+                      key={`brush-${size}`}
+                      onClick={() => setBrushSize(size)}
+                      className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center text-[10px] sm:text-xs font-bold rounded ${brushSize === size ? 'bg-cyan-500 text-white font-mono' : 'bg-slate-700/50 text-gray-400 font-mono hover:text-white'}`}
+                    >
+                      {size === 1 ? 'S' : size === 2 ? 'M' : 'L'}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-      {/* Primary Toolbar */}
-      <div className="pointer-events-auto bg-[#0f172a]/80 backdrop-blur-lg border border-white/10 p-1.5 rounded-2xl flex items-center justify-between w-full shadow-2xl">
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-          <CategoryTab label="Select" icon={<MousePointer2 size={18} />} active={selectedCategory === 'SELECT'} onClick={() => handleSelectCategory('SELECT')} />
-          <div className="w-[1px] h-6 bg-white/10 mx-1"></div>
-          <CategoryTab label="Roads" icon={<Grid size={18} />} active={selectedCategory === 'ROADS'} onClick={() => handleSelectCategory('ROADS')} />
-          <CategoryTab label="Zoning" icon={<Layers size={18} />} active={selectedCategory === 'ZONING'} onClick={() => handleSelectCategory('ZONING')} />
-          <CategoryTab label="Electricity & Water" icon={<Zap size={18} />} active={selectedCategory === 'UTILITIES'} onClick={() => handleSelectCategory('UTILITIES')} />
-          <CategoryTab label="Services" icon={<Shield size={18} />} active={selectedCategory === 'SERVICES'} onClick={() => handleSelectCategory('SERVICES')} />
-          <CategoryTab label="Landscape & Hills" icon={<Trees size={18} />} active={selectedCategory === 'LANDSCAPING'} onClick={() => handleSelectCategory('LANDSCAPING')} />
+              {/* Land Expansion Option */}
+              {setMapExpansionMode && (
+                <button
+                  onClick={() => {
+                    setMapExpansionMode(!mapExpansionMode);
+                    if (!mapExpansionMode) {
+                      setActiveTool('POINTER');
+                    }
+                  }}
+                  className={`px-2 py-1 rounded-xl flex items-center gap-1 transition-all flex-shrink-0 min-h-[40px] sm:min-h-[44px] ${mapExpansionMode ? 'bg-yellow-500/35 text-white border border-yellow-500/40' : 'text-gray-300 hover:bg-white/10 border border-transparent'}`}
+                >
+                  <Expand size={13} className={mapExpansionMode ? 'text-yellow-400 animate-pulse' : 'text-yellow-400'} />
+                  <span className="text-[9px] sm:text-[10px] font-bold font-sans">Expand ($50k)</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        
-        <div className="flex items-center gap-1 pl-2 border-l border-white/10 ml-2">
-          <CategoryTab label="Bulldoze" icon={<Eraser size={18} className="text-red-400" />} active={selectedCategory === 'BULLDOZE'} onClick={() => handleSelectCategory('BULLDOZE')} />
+      )}
+
+      {/* TIER 2: Expandable Build Categories (Show only in build mode) */}
+      {isBuildDrawerOpen && (
+        <div className="pointer-events-auto bg-[#1e293b]/95 backdrop-blur-md border border-white/10 p-1 sm:p-1.5 rounded-xl sm:rounded-2xl flex items-center justify-around w-[96%] sm:w-full shadow-lg animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <CategoryTab label="Roads" icon={<Grid size={15} />} active={selectedBuildCategory === 'ROADS'} onClick={() => handleSelectCategory('ROADS')} />
+          <CategoryTab label="Zones" icon={<Layers size={15} />} active={selectedBuildCategory === 'ZONING'} onClick={() => handleSelectCategory('ZONING')} />
+          <CategoryTab label="Utilities" icon={<Zap size={15} />} active={selectedBuildCategory === 'UTILITIES'} onClick={() => handleSelectCategory('UTILITIES')} />
+          <CategoryTab label="Services" icon={<Shield size={15} />} active={selectedBuildCategory === 'SERVICES'} onClick={() => handleSelectCategory('SERVICES')} />
+          <CategoryTab label="Landscape" icon={<Trees size={15} />} active={selectedBuildCategory === 'LANDSCAPING'} onClick={() => handleSelectCategory('LANDSCAPING')} />
         </div>
+      )}
+
+      {/* TIER 1: Core Navigation Dock (Always visible, simple, compact) */}
+      <div className="pointer-events-auto bg-[#0f172a]/95 backdrop-blur-lg border border-white/10 px-2 sm:px-3 py-1 sm:py-1.5 rounded-2xl sm:rounded-3xl flex items-center justify-between w-[96%] sm:w-full shadow-2xl">
+        {/* Inspect/Pointer Action */}
+        <button
+          onClick={handleInspectClick}
+          className={`flex flex-col items-center justify-center flex-1 py-1 rounded-xl sm:rounded-2xl transition-all min-h-[42px] sm:min-h-[48px] ${
+            activeCategory === 'SELECT'
+              ? 'bg-blue-500/20 text-blue-300 font-bold'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <MousePointer2 size={16} className={activeCategory === 'SELECT' ? 'scale-110' : ''} />
+          <span className="text-[9px] sm:text-[10px] mt-0.5 tracking-wide font-medium">Inspect</span>
+        </button>
+
+        {/* Build Mode Toggle */}
+        <button
+          onClick={handleBuildClick}
+          className={`flex flex-col items-center justify-center flex-1 py-1 rounded-xl sm:rounded-2xl transition-all min-h-[42px] sm:min-h-[48px] relative ${
+            isBuildingMode
+              ? 'bg-emerald-500/20 text-emerald-300 font-bold'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Hammer size={16} className={isBuildingMode ? 'scale-110 rotate-12' : ''} />
+          <span className="text-[9px] sm:text-[10px] mt-0.5 tracking-wide font-medium">Build</span>
+          {isBuildingMode && (
+            <span className="absolute top-1 right-[25%] w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
+          )}
+        </button>
+
+        {/* Bulldozer/Demolish Action */}
+        <button
+          onClick={handleDemolishClick}
+          className={`flex flex-col items-center justify-center flex-1 py-1 rounded-xl sm:rounded-2xl transition-all min-h-[42px] sm:min-h-[48px] ${
+            activeCategory === 'BULLDOZE'
+              ? 'bg-rose-500/20 text-rose-300 font-bold'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Eraser size={16} className={activeCategory === 'BULLDOZE' ? 'scale-110 -rotate-12' : ''} />
+          <span className="text-[9px] sm:text-[10px] mt-0.5 tracking-wide font-medium">Demolish</span>
+        </button>
       </div>
 
     </div>
@@ -193,14 +300,14 @@ function CategoryTab({ label, icon, active, onClick }: { label: string; icon: Re
   return (
     <button
       onClick={onClick}
-      className={`px-4 py-3 rounded-xl flex items-center justify-center transition-all ${
+      className={`px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl flex flex-col items-center justify-center transition-all min-h-[40px] sm:min-h-[44px] min-w-[48px] sm:min-w-[54px] flex-1 ${
         active
-          ? 'bg-white/15 text-white shadow-inner'
+          ? 'bg-white/15 text-white font-bold'
           : 'text-gray-400 hover:text-white hover:bg-white/5'
       }`}
-      title={label}
     >
       {icon}
+      <span className="text-[8px] sm:text-[9px] mt-0.5 whitespace-nowrap">{label}</span>
     </button>
   );
 }
@@ -231,20 +338,23 @@ function SubToolButton({
     <button
       disabled={!isUnlocked}
       onClick={() => setActiveTool(type)}
-      className={`relative px-4 py-2 rounded-lg flex flex-col items-center justify-center min-w-[70px] gap-1 transition-all ${
+      className={`relative px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg flex flex-col items-center justify-center min-w-[50px] sm:min-w-[56px] min-h-[40px] sm:min-h-[44px] gap-0.5 transition-all flex-shrink-0 ${
         !isUnlocked
           ? 'text-gray-600 opacity-50 cursor-not-allowed'
           : active
-          ? 'bg-blue-500/30 text-white'
+          ? 'bg-blue-500/30 text-white font-semibold'
           : canAfford
           ? 'text-gray-300 hover:bg-white/10 hover:text-white'
           : 'text-red-400/80 hover:bg-red-500/10'
       }`}
-      title={label}
+      title={`${label} - $${cost}`}
     >
-      {!isUnlocked ? <Lock size={18} className="text-gray-500" /> : icon}
-      <span className={`text-[10px] font-mono font-medium ${!isUnlocked ? 'text-gray-600' : (active ? 'text-blue-200' : '')}`}>
-        {!isUnlocked ? 'Locked' : `${cost}`}
+      {!isUnlocked ? <Lock size={12} className="text-gray-500" /> : icon}
+      <span className={`text-[8px] font-mono ${!isUnlocked ? 'text-gray-600' : (active ? 'text-blue-200' : 'text-gray-400')}`}>
+        {!isUnlocked ? 'Locked' : `$${cost >= 1000 ? `${(cost / 1000).toFixed(0)}k` : cost}`}
+      </span>
+      <span className="text-[7px] font-sans text-gray-400 truncate max-w-[46px] leading-tight select-none">
+        {label}
       </span>
     </button>
   );

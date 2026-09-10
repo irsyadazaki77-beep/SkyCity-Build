@@ -65,7 +65,7 @@ describe('SkyCity Comprehensive Core Audit Tests', () => {
     const sim = new AuthoritativeSimulation(state);
     const cmd: SimulationCommand = {
       type: 'SET_TAX',
-      payload: { zoneType: 'residential', rate: 12 }
+      payload: { residential: 12, commercial: 9, industrial: 9 }
     };
 
     const result = sim.executeCommand(cmd);

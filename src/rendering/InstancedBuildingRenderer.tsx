@@ -78,10 +78,18 @@ export function InstancedBuildingRenderer({
     
     types.forEach(arch => {
       const { base, accent, patternType } = getArchitectureColors(arch);
-      mats.set(arch, BuildingShaderMaterial(base, accent, patternType));
+      const mat = BuildingShaderMaterial(base, accent, patternType);
+      if (activeOverlay && activeOverlay !== 'NONE') {
+        mat.transparent = true;
+        mat.opacity = 0.35;
+      } else {
+        mat.transparent = false;
+        mat.opacity = 1.0;
+      }
+      mats.set(arch, mat);
     });
     return mats;
-  }, []);
+  }, [activeOverlay, graphicsQuality]);
 
   useEffect(() => {
     const isFirstRun = prevBuildingRevisionRef.current === -1;
@@ -212,7 +220,7 @@ export function InstancedBuildingRenderer({
       if (onBuildingBatchUpdate) onBuildingBatchUpdate(rebuildCount);
       setChunkList(Array.from(cache.values()));
     }
-  }, [grid, buildingRevision, dirtyBuildingChunks, width, height, chunksX, chunksY, onBuildingBatchUpdate]);
+  }, [grid, buildingRevision, dirtyBuildingChunks, width, height, chunksX, chunksY, activeOverlay, graphicsQuality, onBuildingBatchUpdate]);
 
   useFrame(({ camera }) => {
     projScreenMatrixRef.current.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);

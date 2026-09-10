@@ -130,75 +130,76 @@ export function SaveLoadModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 select-none">
-      <div className="bg-[#0f172a] border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl text-white flex flex-col max-h-[85vh] relative">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] px-[calc(env(safe-area-inset-left,0px)+0.75rem)] pr-[calc(env(safe-area-inset-right,0px)+0.75rem)] select-none animate-in fade-in duration-200">
+      <div className="bg-[#0f172a] border border-white/10 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl text-white flex flex-col max-h-[90vh] sm:max-h-[85vh] relative">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-white/5 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-[#D4AF37]/10 border border-[#D4AF37]/30 rounded-xl text-[#D4AF37]">
-              <Save size={22} />
+        <div className="flex items-center justify-between px-3 py-2.5 sm:px-6 sm:py-4 border-b border-white/10 bg-white/5 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="p-1.5 sm:p-2 bg-[#D4AF37]/10 border border-[#D4AF37]/30 rounded-xl text-[#D4AF37]">
+              <Save size={18} />
             </div>
             <div>
-              <h2 className="font-serif italic text-xl text-[#D4AF37]">City Save & Load Management</h2>
-              <p className="text-[10px] text-gray-400 font-mono uppercase tracking-widest">
-                Session Storage & Slot Archives
+              <h2 className="font-serif italic text-sm sm:text-xl text-[#D4AF37]">Save & Load Game</h2>
+              <p className="text-[8px] sm:text-[9px] text-gray-400 font-mono uppercase tracking-widest">
+                City Archives
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+            className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors min-h-[36px] min-w-[36px] sm:min-h-[40px] sm:min-w-[40px] flex items-center justify-center"
+            aria-label="Close Save & Load"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+        <div className="p-3 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto flex-1 custom-scrollbar">
           {/* City Name Input */}
-          <div className="flex items-center gap-3 bg-black/30 p-3 rounded-xl border border-white/5">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-black/30 p-2.5 sm:p-3 rounded-xl border border-white/5">
             <span className="text-xs font-mono text-gray-400 shrink-0">City Designation:</span>
             <input
               type="text"
               value={cityNameInput}
               onChange={(e) => setCityNameInput(e.target.value)}
-              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#D4AF37] flex-1"
+              className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 font-mono text-xs text-white focus:outline-none focus:border-[#D4AF37] flex-1 min-h-[36px]"
             />
             <button
               onClick={handleNewGameClick}
-              className="px-3 py-1.5 bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-200 font-mono text-xs font-bold rounded-lg transition-colors flex items-center gap-1 shrink-0"
+              className="px-3 py-1.5 bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-200 font-mono text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 shrink-0 min-h-[36px]"
             >
               <RefreshCw size={12} /> New Game
             </button>
           </div>
 
           {errorMsg && (
-            <div className="bg-red-950/50 border border-red-500/50 text-red-300 px-4 py-2 rounded-xl text-xs font-mono flex items-center gap-2">
+            <div className="bg-red-950/50 border border-red-500/50 text-red-300 px-3 py-2 rounded-xl text-xs font-mono flex items-center gap-2">
                <AlertTriangle size={14} /> {errorMsg}
             </div>
           )}
 
           {/* Slots List */}
-          <div className="space-y-3">
+          <div className="space-y-2.5 sm:space-y-3">
             {slots.map((s) => (
               <div
                 key={s.slotId}
-                className="p-4 rounded-xl border border-white/10 bg-white/5 flex items-center justify-between gap-4"
+                className="p-3 sm:p-4 rounded-xl border border-white/10 bg-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4"
               >
-                <div className="space-y-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <span className="font-mono text-xs font-bold text-[#D4AF37] uppercase">
                       {s.slotId === 'autosave' ? 'Autosave Slot' : `Save Slot: ${s.slotId}`}
                     </span>
                     {s.hasData && (
-                      <span className="text-[10px] font-mono text-gray-400">
+                      <span className="text-[9px] sm:text-[10px] font-mono text-gray-400">
                         {new Date(s.timestamp).toLocaleDateString()} {new Date(s.timestamp).toLocaleTimeString()}
                       </span>
                     )}
                   </div>
 
                   {s.hasData ? (
-                    <div className="flex items-center gap-4 text-xs font-mono text-gray-300">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-[11px] sm:text-xs font-mono text-gray-300">
                       <span className="font-bold text-white">{s.cityName}</span>
                       <span>Pop: {s.population.toLocaleString()}</span>
                       <span>Treasury: ${s.money.toLocaleString()}</span>
@@ -210,10 +211,10 @@ export function SaveLoadModal({
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 shrink-0 font-mono">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0 font-mono">
                   <button
                     onClick={() => handleSaveToSlot(s.slotId)}
-                    className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 text-xs font-bold rounded-xl transition-colors flex items-center gap-1"
+                    className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 text-xs font-bold rounded-xl transition-colors flex items-center gap-1 min-h-[36px]"
                   >
                     <Save size={12} /> Save
                   </button>
@@ -222,7 +223,7 @@ export function SaveLoadModal({
                     <>
                       <button
                         onClick={() => handleLoadFromSlot(s.slotId)}
-                        className="px-3 py-1.5 bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 border border-[#D4AF37]/40 text-[#D4AF37] text-xs font-bold rounded-xl transition-colors flex items-center gap-1"
+                        className="px-3 py-1.5 bg-[#D4AF37]/20 hover:bg-[#D4AF37]/30 border border-[#D4AF37]/40 text-[#D4AF37] text-xs font-bold rounded-xl transition-colors flex items-center gap-1 min-h-[36px]"
                       >
                         <FolderOpen size={12} /> Load
                       </button>
@@ -230,17 +231,17 @@ export function SaveLoadModal({
                       <button
                         onClick={() => handleExport(s.slotId)}
                         title="Export Save JSON"
-                        className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl transition-colors"
+                        className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 rounded-xl transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
                       >
-                        <Download size={12} />
+                        <Download size={14} />
                       </button>
 
                       <button
                         onClick={() => handleDeleteSlot(s.slotId)}
                         title="Delete Save Slot"
-                        className="p-2 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-400 rounded-xl transition-colors"
+                        className="p-2 bg-red-950/40 hover:bg-red-900/60 border border-red-500/30 text-red-400 rounded-xl transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={14} />
                       </button>
                     </>
                   )}

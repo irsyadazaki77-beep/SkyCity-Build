@@ -29,15 +29,19 @@ export function BuildingInspector({ tile, onClose }: BuildingInspectorProps) {
   const isZoned = [TileType.RESIDENTIAL, TileType.COMMERCIAL, TileType.INDUSTRIAL].includes(tile.type);
 
   return (
-    <div className="absolute top-20 right-4 w-72 bg-[#0f172a]/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl flex flex-col pointer-events-auto z-40 animate-in slide-in-from-right-4 duration-300">
+    <div className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] sm:bottom-auto sm:top-20 left-3 right-3 sm:left-auto sm:right-4 w-auto sm:w-76 max-w-sm mx-auto sm:mx-0 max-h-[50vh] sm:max-h-[75vh] overflow-y-auto custom-scrollbar bg-[#0f172a]/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl flex flex-col pointer-events-auto z-35 animate-in slide-in-from-bottom-3 sm:slide-in-from-right-4 duration-200">
       
       {/* Header */}
-      <div className="flex items-start justify-between p-3 border-b border-white/10 bg-black/20">
+      <div className="flex items-start justify-between p-3 border-b border-white/10 bg-black/20 sticky top-0 z-10 backdrop-blur-md">
         <div>
-          <h2 className="text-white font-bold text-base leading-tight">{getTypeName(tile.type)}</h2>
-          {isZoned && <p className="text-xs text-gray-400 mt-0.5">Level {tile.level}</p>}
+          <h2 className="text-white font-bold text-sm sm:text-base leading-tight">{getTypeName(tile.type)}</h2>
+          {isZoned && <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5">Level {tile.level}</p>}
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors p-1">
+        <button 
+          onClick={onClose} 
+          className="text-gray-400 hover:text-white transition-colors p-1.5 hover:bg-white/5 rounded-lg min-h-[36px] min-w-[36px] flex items-center justify-center"
+          aria-label="Close Inspector"
+        >
           <X size={16} />
         </button>
       </div>

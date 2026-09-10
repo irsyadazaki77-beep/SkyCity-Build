@@ -166,20 +166,20 @@ export function ChunkRoadRenderer({
             else groupRefs.current.delete(chunk.id);
           }}
         >
-          {chunk.batch.asphaltGeo.attributes.position && (
+          {chunk.batch.asphaltGeo.attributes.position && chunk.batch.asphaltGeo.attributes.position.count > 0 && (
             <mesh geometry={chunk.batch.asphaltGeo} material={asphaltMat} receiveShadow castShadow />
           )}
-          {chunk.batch.markingsGeo.attributes.position && (
+          {chunk.batch.markingsGeo.attributes.position && chunk.batch.markingsGeo.attributes.position.count > 0 && (
             <mesh geometry={chunk.batch.markingsGeo}>
               <meshBasicMaterial color="#fbbf24" />
             </mesh>
           )}
-          {chunk.batch.curbGeo.attributes.position && (
+          {chunk.batch.curbGeo.attributes.position && chunk.batch.curbGeo.attributes.position.count > 0 && (
             <mesh geometry={chunk.batch.curbGeo} receiveShadow castShadow>
               <meshStandardMaterial color="#94a3b8" roughness={0.7} metalness={0.1} />
             </mesh>
           )}
-          {chunk.batch.bridgeGeo.attributes.position && (
+          {chunk.batch.bridgeGeo.attributes.position && chunk.batch.bridgeGeo.attributes.position.count > 0 && (
             <mesh geometry={chunk.batch.bridgeGeo} receiveShadow castShadow>
               <meshStandardMaterial
                 color={showRoadWaterIntersections ? '#f97316' : '#64748b'}
@@ -190,7 +190,7 @@ export function ChunkRoadRenderer({
               />
             </mesh>
           )}
-          {showRoadSegments && chunk.batch.debugGeo.attributes.position && (
+          {showRoadSegments && chunk.batch.debugGeo.attributes.position && chunk.batch.debugGeo.attributes.position.count > 0 && (
             <mesh geometry={chunk.batch.debugGeo}>
               <meshBasicMaterial color="#38bdf8" wireframe />
             </mesh>

@@ -8,12 +8,13 @@ import {
   CompactTileUpdate,
   BUILD_COSTS,
   SimulationCommandResult,
+  SetTaxPayload,
 } from '../../types';
 import { ChunkManager, CHUNK_SIZE } from './ChunkManager';
 import { SimulationEngine, mulberry32 } from './SimulationEngine';
 import { SimulatedVehicle, SimulatedPedestrian } from '../../types';
 import { GAME_CONFIG } from '../../config';
-import { MISSIONS, TECH_NODES } from '../../progression';
+import { MISSIONS, TECH_NODES, isBuildingUnlocked } from '../../progression';
 
 export class AuthoritativeSimulation {
   private state: CityState;
@@ -77,6 +78,7 @@ export class AuthoritativeSimulation {
     const height = grid.length;
     const width = grid[0]?.length || 0;
     const changedTiles: CompactTileUpdate[] = [];
+    const unlocked = this.state.unlockedRegions || ['1,1'];
 
     const fail = (reason: any): SimulationCommandResult => ({
       type: 'COMMAND_RESULT',
@@ -92,115 +94,178 @@ export class AuthoritativeSimulation {
         const { tiles } = cmd.payload as { tiles: [number, number][] };
         const roadCost = BUILD_COSTS[TileType.ROAD] || 10;
         
-        let validTiles = 0;
+        const validPlacements: [number, number][] = [];
         for (const [x, y] of tiles) {
-          if (x >= 0 && x < width && y >= 0 && y < height) {
-             if (grid[y][x].type !== TileType.ROAD && !grid[y][x].water) {
-                 validTiles++;
-             }
+          if (x < 0 || x >= width || y < 0 || y >= height) {
+            continue;
           }
-        }
-        
-        const totalCost = validTiles * roadCost;
-        if (totalCost > 0 && this.state.money < totalCost) {
-           return fail('INSUFFICIENT_FUNDS');
-        }
-
-        let cost = 0;
-        let roadsChanged = false;
-
-        for (const [x, y] of tiles) {
-          if (x >= 0 && x < width && y >= 0 && y < height) {
-            const tile = grid[y][x];
-            if (tile.type !== TileType.ROAD && !tile.water) {
-              tile.type = TileType.ROAD;
-              tile.level = 1;
-              tile.abandoned = false;
-              tile.population = 0;
-              tile.jobs = 0;
-              this.chunkManager.markRoadDirty(x, y);
-              cost += roadCost;
-              roadsChanged = true;
-              changedTiles.push({
-                x,
-                y,
-                type: TileType.ROAD,
-                level: 1,
-                abandoned: false,
-                population: 0,
-                jobs: 0,
-              });
-            }
+          const regKey = `${Math.floor(x / 20)},${Math.floor(y / 20)}`;
+          if (!unlocked.includes(regKey)) {
+            return fail('LOCKED_REGION');
           }
+          const tile = grid[y][x];
+          if (tile.water) {
+            continue;
+          }
+          if (tile.type === TileType.ROAD) {
+            continue;
+          }
+          if (tile.type !== TileType.EMPTY) {
+            continue;
+          }
+          validPlacements.push([x, y]);
         }
 
-        if (roadsChanged) {
-          this.revisions.roadRevision++;
-          this.revisions.simulationStatsRevision++;
-          this.state.money -= cost;
-          this.stateVersion++;
+        if (validPlacements.length === 0) {
+          return fail('INVALID_TILE');
         }
+
+        const totalCost = validPlacements.length * roadCost;
+        if (this.state.money < totalCost) {
+          return fail('INSUFFICIENT_FUNDS');
+        }
+
+        for (const [x, y] of validPlacements) {
+          const tile = grid[y][x];
+          tile.type = TileType.ROAD;
+          tile.level = 1;
+          tile.abandoned = false;
+          tile.population = 0;
+          tile.jobs = 0;
+          tile.traffic = 0;
+          tile.upgradeProgress = 0;
+          this.chunkManager.markRoadDirty(x, y);
+          changedTiles.push({
+            x,
+            y,
+            type: TileType.ROAD,
+            level: 1,
+            abandoned: false,
+            population: 0,
+            jobs: 0,
+          });
+        }
+
+        this.revisions.roadRevision++;
+        this.revisions.simulationStatsRevision++;
+        this.state.money -= totalCost;
+        this.stateVersion++;
         break;
       }
 
       case 'BUILD_ZONE': {
         const { tiles, type } = cmd.payload as { tiles: [number, number][]; type: TileType };
         const zoneCost = BUILD_COSTS[type] || 50;
-        
-        let validTiles = 0;
+        const milestoneLevel = this.state.milestoneLevel ?? 0;
+
+        if (!isBuildingUnlocked(type, milestoneLevel)) {
+          return fail('TECH_LOCKED');
+        }
+
+        const isRCI = (type === TileType.RESIDENTIAL || type === TileType.COMMERCIAL || type === TileType.INDUSTRIAL);
+        const validPlacements: [number, number][] = [];
+
         for (const [x, y] of tiles) {
-          if (x >= 0 && x < width && y >= 0 && y < height) {
-             if (grid[y][x].type !== type && !grid[y][x].water && grid[y][x].type !== TileType.ROAD) {
-                 validTiles++;
-             }
+          if (x < 0 || x >= width || y < 0 || y >= height) {
+            continue;
           }
-        }
-        
-        const totalCost = validTiles * zoneCost;
-        if (totalCost > 0 && this.state.money < totalCost) {
-           return fail('INSUFFICIENT_FUNDS');
-        }
+          const regKey = `${Math.floor(x / 20)},${Math.floor(y / 20)}`;
+          if (!unlocked.includes(regKey)) {
+            return fail('LOCKED_REGION');
+          }
+          const tile = grid[y][x];
+          if (tile.water) {
+            continue;
+          }
+          if (tile.type === type) {
+            continue;
+          }
+          if (tile.type !== TileType.EMPTY) {
+            continue;
+          }
 
-        let cost = 0;
-        let buildingsChanged = false;
-
-        for (const [x, y] of tiles) {
-          if (x >= 0 && x < width && y >= 0 && y < height) {
-            const tile = grid[y][x];
-            if (tile.type !== type && !tile.water && tile.type !== TileType.ROAD) {
-              tile.type = type;
-              tile.level = 1;
-              tile.abandoned = false;
-              tile.population = 0;
-              tile.jobs = 0;
-              tile.traffic = 0;
-              tile.powered = false;
-              tile.watered = false;
-              this.chunkManager.markBuildingDirty(x, y);
-              cost += zoneCost;
-              buildingsChanged = true;
-              changedTiles.push({
-                x,
-                y,
-                type,
-                level: 1,
-                abandoned: false,
-                population: 0,
-                jobs: 0,
-                traffic: 0,
-                powered: false,
-                watered: false,
-              });
+          if (isRCI) {
+            let hasRoad = false;
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of dirs) {
+              const nx = x + dx;
+              const ny = y + dy;
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                if (grid[ny][nx].type === TileType.ROAD) {
+                  hasRoad = true;
+                  break;
+                }
+              }
+            }
+            if (!hasRoad) {
+              continue;
             }
           }
+
+          validPlacements.push([x, y]);
         }
 
-        if (buildingsChanged) {
-          this.revisions.buildingRevision++;
-          this.revisions.simulationStatsRevision++;
-          this.state.money -= cost;
-          this.stateVersion++;
+        if (validPlacements.length === 0) {
+          return fail('INVALID_TILE');
         }
+
+        const totalCost = validPlacements.length * zoneCost;
+        if (this.state.money < totalCost) {
+          return fail('INSUFFICIENT_FUNDS');
+        }
+
+        if (!this.state.buildings) {
+          this.state.buildings = {};
+        }
+
+        for (const [x, y] of validPlacements) {
+          const tile = grid[y][x];
+          tile.type = type;
+          tile.level = 1;
+          tile.abandoned = false;
+          tile.population = 0;
+          tile.jobs = 0;
+          tile.traffic = 0;
+          tile.powered = false;
+          tile.watered = false;
+          tile.upgradeProgress = 0;
+          this.chunkManager.markBuildingDirty(x, y);
+
+          const bId = `${x},${y}`;
+          this.state.buildings[bId] = {
+            id: bId,
+            originX: x,
+            originY: y,
+            footprintW: 1,
+            footprintL: 1,
+            type,
+            level: 1,
+            population: 0,
+            jobs: 0,
+            powered: false,
+            watered: false,
+            abandoned: false,
+            upgradeProgress: 0,
+          };
+
+          changedTiles.push({
+            x,
+            y,
+            type,
+            level: 1,
+            abandoned: false,
+            population: 0,
+            jobs: 0,
+            traffic: 0,
+            powered: false,
+            watered: false,
+          });
+        }
+
+        this.revisions.buildingRevision++;
+        this.revisions.simulationStatsRevision++;
+        this.state.money -= totalCost;
+        this.stateVersion++;
         break;
       }
 
@@ -211,40 +276,50 @@ export class AuthoritativeSimulation {
         let changed = false;
 
         for (const [x, y] of tiles) {
-          if (x >= 0 && x < width && y >= 0 && y < height) {
-            const tile = grid[y][x];
-            if (tile.type !== TileType.EMPTY) {
-              if (tile.type === TileType.ROAD) {
-                roadDirty = true;
-                this.chunkManager.markRoadDirty(x, y);
-              } else {
-                buildingDirty = true;
-                this.chunkManager.markBuildingDirty(x, y);
-              }
+          if (x < 0 || x >= width || y < 0 || y >= height) continue;
+          const regKey = `${Math.floor(x / 20)},${Math.floor(y / 20)}`;
+          if (!unlocked.includes(regKey)) {
+            return fail('LOCKED_REGION');
+          }
 
-              tile.type = TileType.EMPTY;
-              tile.level = 1;
-              tile.population = 0;
-              tile.jobs = 0;
-              tile.traffic = 0;
-              tile.powered = false;
-              tile.watered = false;
-              tile.abandoned = false;
-              changed = true;
-
-              changedTiles.push({
-                x,
-                y,
-                type: TileType.EMPTY,
-                level: 1,
-                population: 0,
-                jobs: 0,
-                traffic: 0,
-                powered: false,
-                watered: false,
-                abandoned: false,
-              });
+          const tile = grid[y][x];
+          if (tile.type !== TileType.EMPTY) {
+            if (tile.type === TileType.ROAD) {
+              roadDirty = true;
+              this.chunkManager.markRoadDirty(x, y);
+            } else {
+              buildingDirty = true;
+              this.chunkManager.markBuildingDirty(x, y);
             }
+
+            const bId = `${x},${y}`;
+            if (this.state.buildings && this.state.buildings[bId]) {
+              delete this.state.buildings[bId];
+            }
+
+            tile.type = TileType.EMPTY;
+            tile.level = 1;
+            tile.population = 0;
+            tile.jobs = 0;
+            tile.traffic = 0;
+            tile.powered = false;
+            tile.watered = false;
+            tile.abandoned = false;
+            tile.upgradeProgress = 0;
+            changed = true;
+
+            changedTiles.push({
+              x,
+              y,
+              type: TileType.EMPTY,
+              level: 1,
+              population: 0,
+              jobs: 0,
+              traffic: 0,
+              powered: false,
+              watered: false,
+              abandoned: false,
+            });
           }
         }
 
@@ -263,114 +338,118 @@ export class AuthoritativeSimulation {
           tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN';
           centerElevation?: number;
         };
-        
-        let validTiles = 0;
+
+        const validTiles: [number, number][] = [];
         for (const [tx, ty] of tiles) {
-            if (tx >= 0 && tx < width && ty >= 0 && ty < height) validTiles++;
-        }
-        
-        const totalCost = validTiles * 15;
-        if (totalCost > 0 && this.state.money < totalCost) {
-            return fail('INSUFFICIENT_FUNDS');
+          if (tx < 0 || tx >= width || ty < 0 || ty >= height) continue;
+          const regKey = `${Math.floor(tx / 20)},${Math.floor(ty / 20)}`;
+          if (!unlocked.includes(regKey)) {
+            return fail('LOCKED_REGION');
+          }
+          validTiles.push([tx, ty]);
         }
 
-        const cost = validTiles * 15;
+        if (validTiles.length === 0) {
+          return fail('INVALID_TILE');
+        }
+
+        const totalCost = validTiles.length * 15;
+        if (this.state.money < totalCost) {
+          return fail('INSUFFICIENT_FUNDS');
+        }
+
         let terrainChanged = false;
 
-        for (const [tx, ty] of tiles) {
-          if (tx >= 0 && tx < width && ty >= 0 && ty < height) {
-            const tile = grid[ty][tx];
-            const oldEl = tile.elevation || 0;
-            const oldWater = tile.water;
-            const oldType = tile.type; // Save old type to handle ghost objects properly!
+        for (const [tx, ty] of validTiles) {
+          const tile = grid[ty][tx];
+          const oldEl = tile.elevation || 0;
+          const oldWater = tile.water;
+          const oldType = tile.type;
 
-            if (tool === 'RAISE_TERRAIN') {
-              tile.elevation = Math.min(10, oldEl + 1);
-              if (tile.elevation > 0) tile.water = false;
-            } else if (tool === 'LOWER_TERRAIN') {
-              tile.elevation = Math.max(0, oldEl - 1);
-              if (tile.elevation === 0) {
-                tile.water = true;
-                tile.type = TileType.EMPTY;
+          if (tool === 'RAISE_TERRAIN') {
+            tile.elevation = Math.min(10, oldEl + 1);
+            if (tile.elevation > 0) tile.water = false;
+          } else if (tool === 'LOWER_TERRAIN') {
+            tile.elevation = Math.max(0, oldEl - 1);
+            if (tile.elevation === 0) {
+              tile.water = true;
+              tile.type = TileType.EMPTY;
+            }
+          } else if (tool === 'LEVEL_TERRAIN') {
+            tile.elevation = centerElevation ?? oldEl;
+            if (tile.elevation === 0) {
+              tile.water = true;
+              tile.type = TileType.EMPTY;
+            } else {
+              tile.water = false;
+            }
+          } else if (tool === 'SMOOTH_TERRAIN') {
+            let sum = oldEl;
+            let count = 1;
+            const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+            for (const [dx, dy] of dirs) {
+              const nx = tx + dx;
+              const ny = ty + dy;
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                sum += grid[ny][nx].elevation || 0;
+                count++;
               }
-            } else if (tool === 'LEVEL_TERRAIN') {
-              tile.elevation = centerElevation ?? oldEl;
-              if (tile.elevation === 0) {
-                tile.water = true;
-                tile.type = TileType.EMPTY;
+            }
+            tile.elevation = Math.round(sum / count);
+            if (tile.elevation === 0) {
+              tile.water = true;
+              tile.type = TileType.EMPTY;
+            }
+          }
+
+          if (tile.elevation !== oldEl || tile.water !== oldWater) {
+            terrainChanged = true;
+            this.chunkManager.markTerrainDirty(tx, ty, true);
+
+            if (tile.water && oldType !== TileType.EMPTY) {
+              tile.type = TileType.EMPTY;
+              const bId = `${tx},${ty}`;
+              if (this.state.buildings && this.state.buildings[bId]) {
+                delete this.state.buildings[bId];
+              }
+              if (oldType === TileType.ROAD) {
+                this.chunkManager.markRoadDirty(tx, ty);
+                this.revisions.roadRevision++;
               } else {
-                tile.water = false;
-              }
-            } else if (tool === 'SMOOTH_TERRAIN') {
-              let sum = oldEl;
-              let count = 1;
-              const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-              for (const [dx, dy] of dirs) {
-                const nx = tx + dx;
-                const ny = ty + dy;
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                  sum += grid[ny][nx].elevation || 0;
-                  count++;
-                }
-              }
-              tile.elevation = Math.round(sum / count);
-              if (tile.elevation === 0) {
-                tile.water = true;
-                tile.type = TileType.EMPTY;
+                this.chunkManager.markBuildingDirty(tx, ty);
+                this.revisions.buildingRevision++;
               }
             }
 
-            if (tile.elevation !== oldEl || tile.water !== oldWater) {
-              terrainChanged = true;
-              this.chunkManager.markTerrainDirty(tx, ty, true);
-
-              // Sync roads & buildings with terraforming elevation & water status.
-              // If it turned into water, clear it.
-              if (tile.water && oldType !== TileType.EMPTY) {
-                  tile.type = TileType.EMPTY;
-                  if (oldType === TileType.ROAD) {
-                      this.chunkManager.markRoadDirty(tx, ty);
-                      this.revisions.roadRevision++;
-                  } else {
-                      this.chunkManager.markBuildingDirty(tx, ty);
-                      this.revisions.buildingRevision++;
-                  }
-              }
-
-              changedTiles.push({
-                x: tx,
-                y: ty,
-                elevation: tile.elevation,
-                water: tile.water,
-                type: tile.type,
-              });
-            }
+            changedTiles.push({
+              x: tx,
+              y: ty,
+              elevation: tile.elevation,
+              water: tile.water,
+              type: tile.type,
+            });
           }
         }
 
         if (terrainChanged) {
           this.revisions.terrainRevision++;
           this.revisions.simulationStatsRevision++;
-          this.state.money -= cost;
+          this.state.money -= totalCost;
           this.stateVersion++;
         }
         break;
       }
 
       case 'SET_TAX': {
-        const payload = cmd.payload as any;
-        if (payload.zoneType && typeof payload.rate === 'number') {
-          if (payload.zoneType === 'residential') this.state.residentialTaxRate = payload.rate;
-          if (payload.zoneType === 'commercial') this.state.commercialTaxRate = payload.rate;
-          if (payload.zoneType === 'industrial') this.state.industrialTaxRate = payload.rate;
-        } else {
-          const { res, com, ind, residential, commercial, industrial } = payload;
-          if (res !== undefined) this.state.residentialTaxRate = res;
-          if (com !== undefined) this.state.commercialTaxRate = com;
-          if (ind !== undefined) this.state.industrialTaxRate = ind;
-          if (residential !== undefined) this.state.residentialTaxRate = residential;
-          if (commercial !== undefined) this.state.commercialTaxRate = commercial;
-          if (industrial !== undefined) this.state.industrialTaxRate = industrial;
+        const payload = cmd.payload as SetTaxPayload;
+        if (typeof payload?.residential === 'number') {
+          this.state.residentialTaxRate = Math.max(1, Math.min(20, Math.round(payload.residential)));
+        }
+        if (typeof payload?.commercial === 'number') {
+          this.state.commercialTaxRate = Math.max(1, Math.min(20, Math.round(payload.commercial)));
+        }
+        if (typeof payload?.industrial === 'number') {
+          this.state.industrialTaxRate = Math.max(1, Math.min(20, Math.round(payload.industrial)));
         }
         this.revisions.simulationStatsRevision++;
         this.stateVersion++;
@@ -394,14 +473,16 @@ export class AuthoritativeSimulation {
 
       case 'UNLOCK_REGION': {
         const { rx, ry } = cmd.payload as { rx: number; ry: number };
+        if (rx < 0 || rx >= 3 || ry < 0 || ry >= 3) {
+          return fail('INVALID_COMMAND');
+        }
         const cost = GAME_CONFIG.REGION_UNLOCK_COST;
         const regKey = `${rx},${ry}`;
-        const unlocked = this.state.unlockedRegions || [];
         if (unlocked.includes(regKey)) {
-            return fail('ALREADY_UNLOCKED');
+          return fail('ALREADY_UNLOCKED');
         }
         if (this.state.money < cost) {
-            return fail('INSUFFICIENT_FUNDS');
+          return fail('INSUFFICIENT_FUNDS');
         }
         this.state.money -= cost;
         this.state.unlockedRegions = [...unlocked, regKey];
@@ -416,16 +497,16 @@ export class AuthoritativeSimulation {
         const { missionId } = cmd.payload as { missionId: string };
         const completed = this.state.completedMissions || [];
         if (completed.includes(missionId)) {
-            return fail('ALREADY_UNLOCKED');
+          return fail('ALREADY_UNLOCKED');
         }
         
         const mission = MISSIONS.find(m => m.id === missionId);
         if (!mission) {
-            return fail('INVALID_COMMAND');
+          return fail('INVALID_COMMAND');
         }
         
         if (!mission.check(this.state)) {
-            return fail('MISSION_NOT_COMPLETED');
+          return fail('MISSION_NOT_COMPLETED');
         }
 
         this.state.completedMissions = [...completed, missionId];
@@ -439,16 +520,24 @@ export class AuthoritativeSimulation {
         const { techId } = cmd.payload as { techId: string };
         const current = this.state.unlockedUpgrades || [];
         if (current.includes(techId)) {
-            return fail('ALREADY_UNLOCKED');
+          return fail('ALREADY_UNLOCKED');
         }
         
         const tech = TECH_NODES.find(t => t.id === techId);
         if (!tech) {
-            return fail('INVALID_COMMAND');
+          return fail('INVALID_COMMAND');
+        }
+
+        if (tech.requiredMilestoneLevel > (this.state.milestoneLevel ?? 0)) {
+          return fail('TECH_LOCKED');
+        }
+
+        if (tech.prerequisiteId && !current.includes(tech.prerequisiteId)) {
+          return fail('TECH_LOCKED');
         }
         
         if (this.state.money < tech.cost) {
-            return fail('INSUFFICIENT_FUNDS');
+          return fail('INSUFFICIENT_FUNDS');
         }
 
         this.state.unlockedUpgrades = [...current, techId];
@@ -459,8 +548,47 @@ export class AuthoritativeSimulation {
       }
 
       case 'LOAD_STATE': {
-        this.state = cmd.payload as CityState;
+        const loaded = cmd.payload as CityState;
+        this.state = {
+          ...loaded,
+          unlockedRegions: loaded.unlockedRegions || ['1,1'],
+          unlockedUpgrades: loaded.unlockedUpgrades || [],
+          activePolicies: loaded.activePolicies || [],
+          completedMissions: loaded.completedMissions || [],
+          unlockedAchievements: loaded.unlockedAchievements || [],
+          buildings: loaded.buildings || {},
+        };
+
+        if (Object.keys(this.state.buildings).length === 0) {
+          for (let y = 0; y < this.state.grid.length; y++) {
+            for (let x = 0; x < this.state.grid[0].length; x++) {
+              const tile = this.state.grid[y][x];
+              if (tile.type !== TileType.EMPTY && tile.type !== TileType.ROAD) {
+                this.state.buildings[`${x},${y}`] = {
+                  id: `${x},${y}`,
+                  originX: x,
+                  originY: y,
+                  footprintW: 1,
+                  footprintL: 1,
+                  type: tile.type,
+                  level: tile.level || 1,
+                  population: tile.population || 0,
+                  jobs: tile.jobs || 0,
+                  powered: !!tile.powered,
+                  watered: !!tile.watered,
+                  abandoned: !!tile.abandoned,
+                  upgradeProgress: tile.upgradeProgress || 0,
+                };
+              }
+            }
+          }
+        }
+
+        const w = this.state.grid[0]?.length || 60;
+        const h = this.state.grid.length || 60;
+        this.chunkManager = new ChunkManager(w, h);
         this.chunkManager.initFromGrid(this.state.grid, this.state.unlockedRegions);
+
         this.revisions.terrainRevision++;
         this.revisions.roadRevision++;
         this.revisions.buildingRevision++;
@@ -483,6 +611,7 @@ export class AuthoritativeSimulation {
       success: true,
       stateVersion: this.stateVersion,
       stats: statsDelta,
+      fullState: cmd.type === 'LOAD_STATE' ? this.state : undefined,
       revisions: { ...this.revisions },
       dirtyTerrain: cmd.type === 'LOAD_STATE' ? ['all'] : dirty.terrain,
       dirtyRoads: cmd.type === 'LOAD_STATE' ? ['all'] : dirty.roads,

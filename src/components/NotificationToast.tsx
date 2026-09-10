@@ -79,19 +79,19 @@ export function NotificationToast({ gameState }: NotificationToastProps) {
   if (alerts.length === 0) return null;
 
   return (
-    <div className="absolute top-20 right-6 z-30 flex flex-col gap-2 max-w-sm pointer-events-none">
+    <div className="fixed top-[calc(env(safe-area-inset-top,0px)+5.25rem)] sm:top-20 left-3 right-3 sm:left-auto sm:right-6 z-30 flex flex-col gap-1.5 sm:max-w-sm pointer-events-none">
       {alerts.map((alert) => (
         <div
           key={alert.id}
-          className={`pointer-events-auto p-3 rounded-xl border shadow-xl flex items-start gap-3 backdrop-blur transition-all duration-300 ${
+          className={`pointer-events-auto p-2 sm:p-2.5 rounded-xl border shadow-xl flex items-start gap-2.5 backdrop-blur-md transition-all duration-300 ${
             alert.type === 'error'
-              ? 'bg-red-950/80 border-red-500/40 text-red-200'
-              : 'bg-amber-950/80 border-amber-500/40 text-amber-200'
+              ? 'bg-red-950/85 border-red-500/40 text-red-200'
+              : 'bg-amber-950/85 border-amber-500/40 text-amber-200'
           }`}
         >
-          <div className="p-1.5 rounded-lg bg-black/40 shrink-0">{alert.icon}</div>
+          <div className="p-1 rounded-lg bg-black/40 shrink-0 mt-0.5">{alert.icon}</div>
           <div className="flex-1 min-w-0">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-white font-mono">{alert.title}</h4>
+            <h4 className="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-white font-mono truncate">{alert.title}</h4>
             <p className="text-[10px] opacity-85 leading-tight mt-0.5">{alert.message}</p>
           </div>
         </div>

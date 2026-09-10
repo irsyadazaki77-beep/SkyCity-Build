@@ -456,7 +456,7 @@ export class SimulationEngine {
     const nextState: CityState = {
       ...prevState,
       grid: nextGrid,
-      buildings: this.entityRegistry.getBuildingsAsRecord(),
+      buildings: prevState.buildings ?? {},
       day: prevState.day + 1,
       money: nextMoney,
       population: totalPop,

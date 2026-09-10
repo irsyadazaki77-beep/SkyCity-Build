@@ -112,17 +112,17 @@ export function DeveloperDebugHUD({
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-3 right-3 z-40 bg-slate-900/85 backdrop-blur-md text-emerald-400 border border-emerald-500/30 rounded-lg px-2.5 py-1.5 text-xs font-mono flex items-center gap-1.5 shadow-lg hover:bg-slate-800 transition-colors"
+        className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] sm:bottom-3 right-[calc(env(safe-area-inset-right,0px)+0.75rem)] z-35 bg-slate-900/90 backdrop-blur-md text-emerald-400 border border-emerald-500/30 rounded-full sm:rounded-lg px-2 py-1 sm:px-2.5 sm:py-1.5 text-[9px] sm:text-xs font-mono flex items-center gap-1 sm:gap-1.5 shadow-lg hover:bg-slate-800 transition-colors min-h-[28px] sm:min-h-[32px]"
       >
-        <Activity className="w-3.5 h-3.5 animate-pulse" />
+        <Activity className="w-3 h-3 sm:w-3.5 sm:h-3.5 animate-pulse shrink-0" />
         <span>{currentFps} FPS ({frameTimeMs}ms)</span>
-        {isWorkerActive && <span className="text-[10px] text-sky-400 ml-1 font-bold">WORKER</span>}
+        {isWorkerActive && <span className="text-[8px] sm:text-[9px] text-sky-400 ml-0.5 font-bold">WORKER</span>}
       </button>
     );
   }
 
   return (
-    <div className="fixed bottom-3 right-3 z-40 bg-slate-900/95 backdrop-blur-md text-slate-200 border border-slate-700/60 rounded-xl p-3 shadow-2xl font-mono text-xs w-88 max-h-[85vh] overflow-y-auto">
+    <div className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] sm:bottom-3 right-[calc(env(safe-area-inset-right,0px)+0.75rem)] left-[calc(env(safe-area-inset-left,0px)+0.75rem)] sm:left-auto z-35 bg-slate-900/95 backdrop-blur-xl text-slate-200 border border-slate-700/60 rounded-2xl p-3 shadow-2xl font-mono text-[10px] sm:text-xs max-w-sm sm:w-88 max-h-[50vh] sm:max-h-[80vh] overflow-y-auto custom-scrollbar">
       <div className="flex items-center justify-between border-b border-slate-700/60 pb-2 mb-2">
         <div className="flex items-center gap-2 text-emerald-400 font-bold">
           <Cpu className="w-4 h-4" />

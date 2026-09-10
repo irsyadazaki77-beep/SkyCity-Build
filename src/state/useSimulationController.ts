@@ -78,6 +78,7 @@ export function useSimulationController(initialState: CityState): SimulationCont
   const workerRef = useRef<Worker | null>(null);
   const isBusyRef = useRef<boolean>(false);
   const fallbackSimRef = useRef<AuthoritativeSimulation | null>(null);
+  const lastMetricsUpdateRef = useRef<number>(0);
 
   const clientCommandIdCounter = useRef<number>(0);
   const pendingCommands = useRef<Map<number, (res: SimulationCommandResult) => void>>(new Map());
@@ -160,13 +161,17 @@ export function useSimulationController(initialState: CityState): SimulationCont
             setDirtyBuildingChunks((prev) => new Set([...prev, ...delta.dirtyBuildingChunkKeys]));
           }
 
-          setSimulationTimeMs(delta.durationMs);
-          setMetrics((prev) => ({
-            ...prev,
-            simulationTickTime: delta.durationMs,
-            workerMessageSize: delta.payloadSizeBytes,
-            changedChunksPerTick: delta.changedChunksCount,
-          }));
+          const now = performance.now();
+          if (now - lastMetricsUpdateRef.current > 300) {
+            lastMetricsUpdateRef.current = now;
+            setSimulationTimeMs(delta.durationMs);
+            setMetrics((prev) => ({
+              ...prev,
+              simulationTickTime: delta.durationMs,
+              workerMessageSize: delta.payloadSizeBytes,
+              changedChunksPerTick: delta.changedChunksCount,
+            }));
+          }
 
           isBusyRef.current = false;
         } else if (data.type === 'COMMAND_RESULT') {
@@ -321,12 +326,17 @@ export function useSimulationController(initialState: CityState): SimulationCont
       setRevisions(delta.revisions);
       setActiveVehicles(delta.vehicles);
       setActivePedestrians(delta.pedestrians);
-      setSimulationTimeMs(delta.durationMs);
-      setMetrics((prev) => ({
-        ...prev,
-        simulationTickTime: delta.durationMs,
-        changedChunksPerTick: delta.changedChunksCount,
-      }));
+      
+      const now = performance.now();
+      if (now - lastMetricsUpdateRef.current > 300) {
+        lastMetricsUpdateRef.current = now;
+        setSimulationTimeMs(delta.durationMs);
+        setMetrics((prev) => ({
+          ...prev,
+          simulationTickTime: delta.durationMs,
+          changedChunksPerTick: delta.changedChunksCount,
+        }));
+      }
     }
   }, [isWorkerActive]);
 
@@ -350,12 +360,17 @@ export function useSimulationController(initialState: CityState): SimulationCont
         setRevisions(delta.revisions);
         setActiveVehicles(delta.vehicles);
         setActivePedestrians(delta.pedestrians);
-        setSimulationTimeMs(delta.durationMs);
-        setMetrics((prev) => ({
-          ...prev,
-          simulationTickTime: delta.durationMs,
-          changedChunksPerTick: delta.changedChunksCount,
-        }));
+        
+        const now = performance.now();
+        if (now - lastMetricsUpdateRef.current > 300) {
+          lastMetricsUpdateRef.current = now;
+          setSimulationTimeMs(delta.durationMs);
+          setMetrics((prev) => ({
+            ...prev,
+            simulationTickTime: delta.durationMs,
+            changedChunksPerTick: delta.changedChunksCount,
+          }));
+        }
       }
     }, intervalMs);
 

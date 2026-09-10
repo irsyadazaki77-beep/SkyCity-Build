@@ -71,6 +71,7 @@ export function ChunkTerrainRenderer({
   const chunksY = Math.ceil(height / CHUNK_SIZE);
 
   const [hoverTile, setHoverTile] = useState<[number, number] | null>(null);
+  const lastHoverRef = useRef<[number, number] | null>(null);
 
   const chunkCacheRef = useRef<Map<string, ChunkEntry>>(new Map());
   const [chunkList, setChunkList] = useState<ChunkEntry[]>([]);
@@ -82,6 +83,28 @@ export function ChunkTerrainRenderer({
   const frustumRef = useRef(new THREE.Frustum());
   const projScreenMatrixRef = useRef(new THREE.Matrix4());
   const lastVisibleCountRef = useRef(-1);
+  const frameCountRef = useRef(0);
+  const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
+
+  useEffect(() => {
+    if (!instancedMeshRef.current) return;
+    const mesh = instancedMeshRef.current;
+    const count = dragPreviewTiles.length;
+    mesh.count = count;
+
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < count; i++) {
+      const [px, py] = dragPreviewTiles[i];
+      const [wx, , wz] = gridToWorld(px, py, width, height);
+      const el = (grid[py]?.[px]?.elevation || 0) * 0.45;
+
+      dummy.position.set(wx, el + 0.04, wz);
+      dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [dragPreviewTiles, grid, width, height]);
 
   // Materials
   const terrainMat = useMemo(() => TerrainMaterial(), []);
@@ -161,6 +184,9 @@ export function ChunkTerrainRenderer({
     const cache = chunkCacheRef.current;
     const camPos = camera.position;
 
+    frameCountRef.current++;
+    const shouldCheckLOD = frameCountRef.current % 30 === 0;
+
     meshRefs.current.forEach((mesh, id) => {
       const entry = cache.get(id);
       if (!entry) return;
@@ -172,7 +198,7 @@ export function ChunkTerrainRenderer({
       if (isVisible) visibleCount++;
 
       // Adaptive camera LOD with Hysteresis
-      if (isVisible && graphicsQuality !== 'low') {
+      if (shouldCheckLOD && isVisible && graphicsQuality !== 'low') {
         const dist = camPos.distanceTo(entry.centerWorld);
         
         let targetLod = entry.lod;
@@ -212,8 +238,12 @@ export function ChunkTerrainRenderer({
     e.stopPropagation();
     const [gx, gy] = worldToGrid(e.point.x, e.point.z, width, height);
     if (gx >= 0 && gx < width && gy >= 0 && gy < height) {
-      setHoverTile([gx, gy]);
-      onTilePointerEnter(gx, gy);
+      const prevHover = lastHoverRef.current;
+      if (!prevHover || prevHover[0] !== gx || prevHover[1] !== gy) {
+        lastHoverRef.current = [gx, gy];
+        setHoverTile([gx, gy]);
+        onTilePointerEnter(gx, gy);
+      }
     }
   };
 
@@ -287,19 +317,19 @@ export function ChunkTerrainRenderer({
       )}
 
       {/* Drag build preview tiles */}
-      {dragPreviewTiles.map(([px, py]) => {
-        const [wx, , wz] = gridToWorld(px, py, width, height);
-        const el = (grid[py]?.[px]?.elevation || 0) * 0.45;
-        return (
-          <mesh key={`drag-${px}-${py}`} position={[wx, el + 0.04, wz]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[TILE_SIZE * 0.9, TILE_SIZE * 0.9]} />
-            <meshBasicMaterial
-              color={dragPreviewColor === 'red' ? '#ef4444' : '#22c55e'}
-              transparent opacity={0.5}
-            />
-          </mesh>
-        );
-      })}
+      {dragPreviewTiles.length > 0 && (
+        <instancedMesh
+          ref={instancedMeshRef}
+          args={[null as any, null as any, dragPreviewTiles.length]}
+        >
+          <planeGeometry args={[TILE_SIZE * 0.9, TILE_SIZE * 0.9]} />
+          <meshBasicMaterial
+            color={dragPreviewColor === 'red' ? '#ef4444' : '#22c55e'}
+            transparent
+            opacity={0.5}
+          />
+        </instancedMesh>
+      )}
     </group>
   );
 }

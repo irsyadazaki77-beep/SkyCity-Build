@@ -42,7 +42,7 @@ export function CursorTooltip({ activeTool, brushSize }: CursorTooltipProps) {
   return (
     <div
       ref={tooltipRef}
-      className="fixed top-0 left-0 z-50 pointer-events-none bg-slate-900/90 backdrop-blur-md border border-white/20 text-white px-3 py-1.5 rounded-lg shadow-2xl flex flex-col items-center text-xs font-mono select-none"
+      className="hidden sm:flex fixed top-0 left-0 z-30 pointer-events-none bg-slate-900/90 backdrop-blur-md border border-white/20 text-white px-3 py-1.5 rounded-lg shadow-2xl flex-col items-center text-xs font-mono select-none"
       style={{ transform: 'translate3d(-9999px, -9999px, 0)', willChange: 'transform' }}
     >
       <span className="font-semibold text-amber-300">{String(activeTool).replace('_', ' ')}</span>

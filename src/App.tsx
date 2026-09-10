@@ -654,7 +654,7 @@ export default function App() {
       : null;
 
   return (
-    <div className="flex flex-col h-screen bg-[#0a0f1d] text-gray-200 font-sans overflow-hidden select-none">
+    <div className="flex flex-col h-screen h-[100dvh] w-full bg-[#0a0f1d] text-gray-200 font-sans overflow-hidden select-none overscroll-none">
       {/* Dynamic Cursor Tooltip */}
       <CursorTooltip activeTool={activeTool} brushSize={brushSize} />
 
