@@ -8,7 +8,7 @@ import {
   calculateEconomy, 
   simulateTick 
 } from './engine';
-import { buildRoadGraph, simulateRoadNetworkAndTraffic, getAdjacentRoadNodeKey } from './traffic';
+import { TrafficSubsystem, getAdjacentRoadNodeKey } from './core/simulation/TrafficSubsystem';
 import { simulateCityServices } from './services';
 import { simulateCityDepthAndEnvironment, simulateBuildingEvolution } from './depthSimulation';
 
@@ -201,7 +201,9 @@ describe('Skyline Simulator Engine 5.0 Subsystems', () => {
     grid[1][5].powered = true;
     grid[1][5].watered = true;
 
-    const roadGraph = buildRoadGraph(grid, []);
+    const trafficSys = new TrafficSubsystem();
+    trafficSys.roadNetwork.rebuildFull(grid, []);
+    const roadGraph = trafficSys.roadNetwork.getGraph();
     const servicesResult = simulateCityServices(grid, roadGraph, 10, 5, 60, 2, 9, []);
 
     expect(grid[1][5].healthCovered).toBe(true);
@@ -317,7 +319,9 @@ describe('Skyline Simulator Engine 5.0 Subsystems', () => {
     // Park zone at (5,7) absorbing pollution
     grid[5][7].type = TileType.PARK;
 
-    const roadGraph = buildRoadGraph(grid, []);
+    const trafficSys = new TrafficSubsystem();
+    trafficSys.roadNetwork.rebuildFull(grid, []);
+    const roadGraph = trafficSys.roadNetwork.getGraph();
     const { pollutionAverage, landValueAverage } = simulateCityDepthAndEnvironment(grid, roadGraph, []);
 
     // Environmental pollution recorded
@@ -339,7 +343,9 @@ describe('Skyline Simulator Engine 5.0 Subsystems', () => {
     grid[0][1].landValue = 40;
     grid[0][1].fireCovered = true;
 
-    const roadGraph = buildRoadGraph(grid, []);
+    const trafficSys = new TrafficSubsystem();
+    trafficSys.roadNetwork.rebuildFull(grid, []);
+    const roadGraph = trafficSys.roadNetwork.getGraph();
 
     // Simulate 4 progression ticks to reach upgrade threshold
     for (let i = 0; i < 4; i++) {

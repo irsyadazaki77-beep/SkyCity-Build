@@ -165,7 +165,7 @@ export class ChunkManager {
     }
   }
 
-  public markRoadDirty(x: number, y: number): void {
+  public markRoadDirty(x: number, y: number, includeSeams = true): void {
     const { cx, cy } = this.getChunkForTile(x, y);
     const key = this.getChunkKey(cx, cy);
     this.dirtyRoadChunkKeys.add(key);
@@ -175,9 +175,26 @@ export class ChunkManager {
       chunk.isDirty = true;
       chunk.roadsDirty = true;
     }
+
+    if (includeSeams) {
+      const modX = x % CHUNK_SIZE;
+      const modY = y % CHUNK_SIZE;
+
+      if (modX === 0 && cx > 0) {
+        this.markRoadDirty(x - 1, y, false);
+      } else if (modX === CHUNK_SIZE - 1 && cx < this.chunksX - 1) {
+        this.markRoadDirty(x + 1, y, false);
+      }
+
+      if (modY === 0 && cy > 0) {
+        this.markRoadDirty(x, y - 1, false);
+      } else if (modY === CHUNK_SIZE - 1 && cy < this.chunksY - 1) {
+        this.markRoadDirty(x, y + 1, false);
+      }
+    }
   }
 
-  public markBuildingDirty(x: number, y: number): void {
+  public markBuildingDirty(x: number, y: number, includeSeams = true): void {
     const { cx, cy } = this.getChunkForTile(x, y);
     const key = this.getChunkKey(cx, cy);
     this.dirtyBuildingChunkKeys.add(key);
@@ -186,6 +203,25 @@ export class ChunkManager {
     if (chunk) {
       chunk.isDirty = true;
       chunk.buildingsDirty = true;
+    }
+
+    if (includeSeams) {
+      const modX = x % CHUNK_SIZE;
+      const modY = y % CHUNK_SIZE;
+      
+      // Building max size is 2x2. If x % CHUNK_SIZE === CHUNK_SIZE - 1, it might extend into the next chunk (+1).
+      // If it is placed at modX === 0, it might be the tail of a building placed in previous chunk (-1).
+      // To be completely safe with 2x2 footprint overlaps, we mark adjacent chunks dirty if at the edge.
+      if (modX === 0 && cx > 0) this.markBuildingDirty(x - 1, y, false);
+      if (modX === CHUNK_SIZE - 1 && cx < this.chunksX - 1) this.markBuildingDirty(x + 1, y, false);
+      if (modY === 0 && cy > 0) this.markBuildingDirty(x, y - 1, false);
+      if (modY === CHUNK_SIZE - 1 && cy < this.chunksY - 1) this.markBuildingDirty(x, y + 1, false);
+      
+      // Corners
+      if (modX === 0 && modY === 0 && cx > 0 && cy > 0) this.markBuildingDirty(x - 1, y - 1, false);
+      if (modX === CHUNK_SIZE - 1 && modY === 0 && cx < this.chunksX - 1 && cy > 0) this.markBuildingDirty(x + 1, y - 1, false);
+      if (modX === 0 && modY === CHUNK_SIZE - 1 && cx > 0 && cy < this.chunksY - 1) this.markBuildingDirty(x - 1, y + 1, false);
+      if (modX === CHUNK_SIZE - 1 && modY === CHUNK_SIZE - 1 && cx < this.chunksX - 1 && cy < this.chunksY - 1) this.markBuildingDirty(x + 1, y + 1, false);
     }
   }
 

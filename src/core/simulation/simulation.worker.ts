@@ -15,21 +15,12 @@ self.onmessage = (e: MessageEvent) => {
   } else if (type === 'COMMAND') {
     if (!simulation) return;
     const cmd = payload as SimulationCommand;
+    const clientCommandId = e.data.clientCommandId;
     const result = simulation.executeCommand(cmd);
-    const fullState = simulation.getState();
-
-    // Compact stats delta (omit grid for minimal message size)
-    const { grid: _omit, ...statsDelta } = fullState;
 
     self.postMessage({
-      type: 'COMMAND_RESULT',
-      commandType: cmd.type,
-      revisions: result.revisions,
-      dirtyTerrain: result.dirtyTerrain,
-      dirtyRoads: result.dirtyRoads,
-      dirtyBuildings: result.dirtyBuildings,
-      changedTiles: result.changedTiles,
-      stats: statsDelta,
+      ...result,
+      clientCommandId,
     });
   } else if (type === 'TICK') {
     if (!simulation) return;

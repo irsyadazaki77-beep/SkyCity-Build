@@ -8,6 +8,7 @@ import {
   SimulatedVehicle,
   SimulatedPedestrian,
   TileType,
+  SimulationCommandResult,
 } from '../types';
 import { AuthoritativeSimulation } from '../core/simulation/AuthoritativeSimulation';
 
@@ -25,7 +26,7 @@ export interface SimulationController {
   setSpeed: (spd: number) => void;
   simulationTimeMs: number;
   triggerManualTick: () => void;
-  dispatchCommand: (cmd: SimulationCommand) => void;
+  dispatchCommand: (cmd: SimulationCommand) => Promise<SimulationCommandResult>;
   isWorkerActive: boolean;
   clearDirtyTerrainChunks: () => void;
   clearDirtyRoadChunks: () => void;
@@ -78,6 +79,15 @@ export function useSimulationController(initialState: CityState): SimulationCont
   const isBusyRef = useRef<boolean>(false);
   const fallbackSimRef = useRef<AuthoritativeSimulation | null>(null);
 
+  const clientCommandIdCounter = useRef<number>(0);
+  const pendingCommands = useRef<Map<number, (res: SimulationCommandResult) => void>>(new Map());
+  const stateVersionRef = useRef<number>(0);
+  
+  const gameStateRef = useRef<CityState>(initialState);
+  useEffect(() => {
+    gameStateRef.current = gameState;
+  }, [gameState]);
+
   // Initialize Web Worker
   useEffect(() => {
     try {
@@ -94,13 +104,25 @@ export function useSimulationController(initialState: CityState): SimulationCont
           }
         } else if (data.type === 'TICK_DELTA') {
           const delta = data as SimulationTickDelta;
+          
+          if (delta.stateVersion < stateVersionRef.current) {
+            // Stale tick, ignore
+            isBusyRef.current = false;
+            return;
+          }
+          stateVersionRef.current = delta.stateVersion;
 
           // Apply changed tiles directly to gameState.grid in-place
           setGameState((prev) => {
+            // We create a shallow clone of the grid array rows that are modified
+            // This satisfies React immutability for re-renders without full deep clone.
+            const newGrid = [...prev.grid];
+            
             if (delta.changedTiles && delta.changedTiles.length > 0) {
               for (const update of delta.changedTiles) {
-                const t = prev.grid[update.y]?.[update.x];
-                if (t) {
+                if (newGrid[update.y]) {
+                  newGrid[update.y] = [...newGrid[update.y]];
+                  const t = { ...newGrid[update.y][update.x] };
                   if (update.type !== undefined) t.type = update.type;
                   if (update.level !== undefined) t.level = update.level;
                   if (update.abandoned !== undefined) t.abandoned = update.abandoned;
@@ -108,6 +130,9 @@ export function useSimulationController(initialState: CityState): SimulationCont
                   if (update.watered !== undefined) t.watered = update.watered;
                   if (update.population !== undefined) t.population = update.population;
                   if (update.jobs !== undefined) t.jobs = update.jobs;
+                  if (update.elevation !== undefined) t.elevation = update.elevation;
+                  if (update.water !== undefined) t.water = update.water;
+                  newGrid[update.y][update.x] = t;
                 }
               }
             }
@@ -116,6 +141,7 @@ export function useSimulationController(initialState: CityState): SimulationCont
             return {
               ...prev,
               ...delta.stats,
+              grid: newGrid,
             };
           });
 
@@ -144,50 +170,69 @@ export function useSimulationController(initialState: CityState): SimulationCont
 
           isBusyRef.current = false;
         } else if (data.type === 'COMMAND_RESULT') {
-          // Sync changed tiles authoritatively from worker command execution
-          setGameState((prev) => {
-            if (data.changedTiles && data.changedTiles.length > 0) {
-              for (const update of data.changedTiles) {
-                const t = prev.grid[update.y]?.[update.x];
-                if (t) {
-                  if (update.type !== undefined) t.type = update.type;
-                  if (update.level !== undefined) t.level = update.level;
-                  if (update.abandoned !== undefined) t.abandoned = update.abandoned;
-                  if (update.powered !== undefined) t.powered = update.powered;
-                  if (update.watered !== undefined) t.watered = update.watered;
-                  if (update.population !== undefined) t.population = update.population;
-                  if (update.jobs !== undefined) t.jobs = update.jobs;
-                  if (update.elevation !== undefined) t.elevation = update.elevation;
-                  if (update.water !== undefined) t.water = update.water;
-                }
-              }
-            }
-            if (data.stats) {
-              return { ...prev, ...data.stats };
-            }
-            return { ...prev };
-          });
-
-          if (data.revisions) {
-            setRevisions(data.revisions);
+          const res = data as SimulationCommandResult & { clientCommandId?: number };
+          
+          if (res.stateVersion >= stateVersionRef.current) {
+            stateVersionRef.current = res.stateVersion;
           }
 
-          if (data.commandType === 'LOAD_STATE') {
-            setDirtyTerrainChunks(new Set(['all']));
-            setDirtyRoadChunks(new Set(['all']));
-            setDirtyBuildingChunks(new Set(['all']));
-            setActiveVehicles([]);
-            setActivePedestrians([]);
-          } else {
-            if (data.dirtyTerrain && data.dirtyTerrain.length > 0) {
-              setDirtyTerrainChunks((prev) => new Set([...prev, ...data.dirtyTerrain]));
+          if (res.success) {
+            // Sync changed tiles authoritatively from worker command execution
+            setGameState((prev) => {
+              const newGrid = [...prev.grid];
+              if (res.changedTiles && res.changedTiles.length > 0) {
+                for (const update of res.changedTiles) {
+                  if (newGrid[update.y]) {
+                    newGrid[update.y] = [...newGrid[update.y]];
+                    const t = { ...newGrid[update.y][update.x] };
+                    if (update.type !== undefined) t.type = update.type;
+                    if (update.level !== undefined) t.level = update.level;
+                    if (update.abandoned !== undefined) t.abandoned = update.abandoned;
+                    if (update.powered !== undefined) t.powered = update.powered;
+                    if (update.watered !== undefined) t.watered = update.watered;
+                    if (update.population !== undefined) t.population = update.population;
+                    if (update.jobs !== undefined) t.jobs = update.jobs;
+                    if (update.elevation !== undefined) t.elevation = update.elevation;
+                    if (update.water !== undefined) t.water = update.water;
+                    newGrid[update.y][update.x] = t;
+                  }
+                }
+              }
+              if (res.stats) {
+                return { ...prev, ...res.stats, grid: newGrid };
+              }
+              return { ...prev, grid: newGrid };
+            });
+
+            if (res.revisions) {
+              setRevisions(res.revisions);
             }
-            if (data.dirtyRoads && data.dirtyRoads.length > 0) {
-              setDirtyRoadChunks((prev) => new Set([...prev, ...data.dirtyRoads]));
+
+            if (res.commandType === 'LOAD_STATE') {
+              setDirtyTerrainChunks(new Set(['all']));
+              setDirtyRoadChunks(new Set(['all']));
+              setDirtyBuildingChunks(new Set(['all']));
+              setActiveVehicles([]);
+              setActivePedestrians([]);
+            } else {
+              if (res.dirtyTerrain && res.dirtyTerrain.length > 0) {
+                setDirtyTerrainChunks((prev) => new Set([...prev, ...res.dirtyTerrain]));
+              }
+              if (res.dirtyRoads && res.dirtyRoads.length > 0) {
+                setDirtyRoadChunks((prev) => new Set([...prev, ...res.dirtyRoads]));
+              }
+              if (res.dirtyBuildings && res.dirtyBuildings.length > 0) {
+                setDirtyBuildingChunks((prev) => new Set([...prev, ...res.dirtyBuildings]));
+              }
             }
-            if (data.dirtyBuildings && data.dirtyBuildings.length > 0) {
-              setDirtyBuildingChunks((prev) => new Set([...prev, ...data.dirtyBuildings]));
-            }
+          }
+          
+          if (res.clientCommandId !== undefined) {
+             const resolver = pendingCommands.current.get(res.clientCommandId);
+             if (resolver) {
+                 resolver(res);
+                 pendingCommands.current.delete(res.clientCommandId);
+             }
           }
         }
       };
@@ -209,104 +254,56 @@ export function useSimulationController(initialState: CityState): SimulationCont
 
   // Dispatch high-performance simulation command
   const dispatchCommand = useCallback(
-    (cmd: SimulationCommand) => {
-      // Optimistically apply to local gameState grid so visual interactions respond at 60 FPS
-      if (cmd.type === 'BUILD_ROAD') {
-        const { tiles } = cmd.payload as { tiles: [number, number][] };
-        for (const [x, y] of tiles) {
-          if (gameState.grid[y]?.[x]) {
-            gameState.grid[y][x].type = TileType.ROAD;
-            gameState.grid[y][x].level = 1;
-            gameState.grid[y][x].abandoned = false;
+    (cmd: SimulationCommand): Promise<SimulationCommandResult> => {
+      return new Promise((resolve) => {
+          clientCommandIdCounter.current++;
+          const cid = clientCommandIdCounter.current;
+          pendingCommands.current.set(cid, resolve);
+          
+          if (cmd.type === 'CHANGE_SPEED') {
+            setSpeed(cmd.payload.speed);
           }
-        }
-      } else if (cmd.type === 'BUILD_ZONE') {
-        const { tiles, type } = cmd.payload as { tiles: [number, number][]; type: TileType };
-        for (const [x, y] of tiles) {
-          if (gameState.grid[y]?.[x]) {
-            gameState.grid[y][x].type = type;
-            gameState.grid[y][x].level = 1;
-            gameState.grid[y][x].abandoned = false;
-          }
-        }
-      } else if (cmd.type === 'BULLDOZE') {
-        const { tiles } = cmd.payload as { tiles: [number, number][] };
-        for (const [x, y] of tiles) {
-          if (gameState.grid[y]?.[x]) {
-            gameState.grid[y][x].type = TileType.EMPTY;
-          }
-        }
-      } else if (cmd.type === 'TERRAFORM') {
-        const { tiles, tool, centerElevation } = cmd.payload as {
-          tiles: [number, number][];
-          tool: string;
-          centerElevation?: number;
-        };
-        for (const [tx, ty] of tiles) {
-          const t = gameState.grid[ty]?.[tx];
-          if (t) {
-            const oldEl = t.elevation || 0;
-            if (tool === 'RAISE_TERRAIN') {
-              t.elevation = Math.min(10, oldEl + 1);
-              if (t.elevation > 0) t.water = false;
-            } else if (tool === 'LOWER_TERRAIN') {
-              t.elevation = Math.max(0, oldEl - 1);
-              if (t.elevation === 0) {
-                t.water = true;
-                t.type = TileType.EMPTY;
-              }
-            } else if (tool === 'LEVEL_TERRAIN') {
-              t.elevation = centerElevation ?? oldEl;
-              if (t.elevation === 0) {
-                t.water = true;
-                t.type = TileType.EMPTY;
-              } else {
-                t.water = false;
-              }
-            }
-          }
-        }
-      } else if (cmd.type === 'LOAD_STATE') {
-        const loadedState = cmd.payload;
-        setGameState({ ...loadedState });
-        setDirtyTerrainChunks(new Set(['all']));
-        setDirtyRoadChunks(new Set(['all']));
-        setDirtyBuildingChunks(new Set(['all']));
-        setActiveVehicles([]);
-        setActivePedestrians([]);
-      } else if (cmd.type === 'CHANGE_SPEED') {
-        setSpeed(cmd.payload.speed);
-      }
 
-      if (workerRef.current && isWorkerActive) {
-        workerRef.current.postMessage({ type: 'COMMAND', payload: cmd });
-      } else {
-        if (!fallbackSimRef.current) {
-          fallbackSimRef.current = new AuthoritativeSimulation(gameState);
-        }
-        const res = fallbackSimRef.current.executeCommand(cmd);
-        setGameState({ ...fallbackSimRef.current.getState() });
-        setRevisions(res.revisions);
-        if (cmd.type === 'LOAD_STATE') {
-          setDirtyTerrainChunks(new Set(['all']));
-          setDirtyRoadChunks(new Set(['all']));
-          setDirtyBuildingChunks(new Set(['all']));
-          setActiveVehicles([]);
-          setActivePedestrians([]);
-        } else {
-          if (res.dirtyTerrain.length > 0) {
-            setDirtyTerrainChunks((prev) => new Set([...prev, ...res.dirtyTerrain]));
+          if (workerRef.current && isWorkerActive) {
+            workerRef.current.postMessage({ type: 'COMMAND', payload: cmd, clientCommandId: cid });
+          } else {
+            if (!fallbackSimRef.current) {
+              fallbackSimRef.current = new AuthoritativeSimulation(gameStateRef.current);
+            }
+            const res = fallbackSimRef.current.executeCommand(cmd);
+            
+            if (res.stateVersion >= stateVersionRef.current) {
+              stateVersionRef.current = res.stateVersion;
+            }
+            
+            if (res.success) {
+                setGameState({ ...fallbackSimRef.current.getState() });
+                if (res.revisions) setRevisions(res.revisions);
+                
+                if (cmd.type === 'LOAD_STATE') {
+                  setDirtyTerrainChunks(new Set(['all']));
+                  setDirtyRoadChunks(new Set(['all']));
+                  setDirtyBuildingChunks(new Set(['all']));
+                  setActiveVehicles([]);
+                  setActivePedestrians([]);
+                } else {
+                  if (res.dirtyTerrain && res.dirtyTerrain.length > 0) {
+                    setDirtyTerrainChunks((prev) => new Set([...prev, ...res.dirtyTerrain!]));
+                  }
+                  if (res.dirtyRoads && res.dirtyRoads.length > 0) {
+                    setDirtyRoadChunks((prev) => new Set([...prev, ...res.dirtyRoads!]));
+                  }
+                  if (res.dirtyBuildings && res.dirtyBuildings.length > 0) {
+                    setDirtyBuildingChunks((prev) => new Set([...prev, ...res.dirtyBuildings!]));
+                  }
+                }
+            }
+            resolve(res);
+            pendingCommands.current.delete(cid);
           }
-          if (res.dirtyRoads.length > 0) {
-            setDirtyRoadChunks((prev) => new Set([...prev, ...res.dirtyRoads]));
-          }
-          if (res.dirtyBuildings.length > 0) {
-            setDirtyBuildingChunks((prev) => new Set([...prev, ...res.dirtyBuildings]));
-          }
-        }
-      }
+      });
     },
-    [isWorkerActive, gameState]
+    [isWorkerActive]
   );
 
   const triggerManualTick = useCallback(() => {
@@ -317,7 +314,7 @@ export function useSimulationController(initialState: CityState): SimulationCont
       }
     } else {
       if (!fallbackSimRef.current) {
-        fallbackSimRef.current = new AuthoritativeSimulation(gameState);
+        fallbackSimRef.current = new AuthoritativeSimulation(gameStateRef.current);
       }
       const delta = fallbackSimRef.current.stepTick();
       setGameState({ ...fallbackSimRef.current.getState() });
@@ -331,7 +328,7 @@ export function useSimulationController(initialState: CityState): SimulationCont
         changedChunksPerTick: delta.changedChunksCount,
       }));
     }
-  }, [isWorkerActive, gameState]);
+  }, [isWorkerActive]);
 
   // Simulation tick timer
   useEffect(() => {
@@ -346,7 +343,7 @@ export function useSimulationController(initialState: CityState): SimulationCont
         }
       } else {
         if (!fallbackSimRef.current) {
-          fallbackSimRef.current = new AuthoritativeSimulation(gameState);
+          fallbackSimRef.current = new AuthoritativeSimulation(gameStateRef.current);
         }
         const delta = fallbackSimRef.current.stepTick();
         setGameState({ ...fallbackSimRef.current.getState() });
@@ -363,7 +360,7 @@ export function useSimulationController(initialState: CityState): SimulationCont
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [speed, isWorkerActive, gameState]);
+  }, [speed, isWorkerActive]);
 
   const clearDirtyTerrainChunks = useCallback(() => {
     setDirtyTerrainChunks(new Set());

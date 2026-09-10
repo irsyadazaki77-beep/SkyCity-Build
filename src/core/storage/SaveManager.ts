@@ -135,9 +135,19 @@ export class SaveManager {
     // Check some elements of grid to verify structure
     const grid = obj.grid;
     if (grid.length === 0 || !Array.isArray(grid[0])) return false;
-    const firstTile = grid[0][0];
-    if (!firstTile || typeof firstTile !== 'object') return false;
-    if (typeof firstTile.x !== 'number' || typeof firstTile.y !== 'number' || typeof firstTile.type !== 'string') return false;
+    
+    // Check rectangular grid and first tile
+    const width = grid[0].length;
+    for (let y = 0; y < Math.min(grid.length, 5); y++) {
+        if (!Array.isArray(grid[y]) || grid[y].length !== width) return false;
+        for (let x = 0; x < Math.min(width, 5); x++) {
+            const tile = grid[y][x];
+            if (!tile || typeof tile !== 'object') return false;
+            if (typeof tile.x !== 'number' || typeof tile.y !== 'number' || typeof tile.type !== 'number') return false;
+            if (typeof tile.level !== 'number' || typeof tile.population !== 'number' || typeof tile.jobs !== 'number') return false;
+            if (typeof tile.elevation !== 'number' || typeof tile.water !== 'boolean') return false;
+        }
+    }
     
     return true;
   }
@@ -297,69 +307,3 @@ export class SaveManager {
   }
 }
 
-export function saveGame(slotId: string, state: CityState, cityName = 'Skyline City'): boolean {
-  SaveManager.saveGame(slotId, state, cityName);
-  return true;
-}
-
-export function loadGame(slotId: string): any {
-  try {
-    const json = localStorage.getItem(LOCAL_STORAGE_PREFIX + slotId) || localStorage.getItem('skyline_sim_save_' + slotId);
-    if (!json) return null;
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
-
-export function deleteSave(slotId: string): void {
-  SaveManager.deleteSave(slotId);
-}
-
-export function listSaveSlots(): any[] {
-  const slots = ['autosave', 'slot_1', 'slot_2', 'slot_3'];
-  return slots.map((slotId) => {
-    const data = loadGame(slotId);
-    if (data) {
-      return {
-        slotId,
-        cityName: data.cityName || 'Skyline City',
-        timestamp: data.timestamp,
-        population: data.gameState?.population || 0,
-        money: data.gameState?.money || 0,
-        day: data.gameState?.day || 1,
-        hasData: true,
-        isAutosave: slotId === 'autosave',
-      };
-    }
-    return {
-      slotId,
-      cityName: 'Empty Slot',
-      timestamp: 0,
-      population: 0,
-      money: 0,
-      day: 0,
-      hasData: false,
-      isAutosave: slotId === 'autosave',
-    };
-  });
-}
-
-export function exportSaveJson(slotId: string): string | null {
-  const data = loadGame(slotId);
-  if (!data) return null;
-  return JSON.stringify(data, null, 2);
-}
-
-export function importSaveJson(slotId: string, jsonStr: string): boolean {
-  try {
-    const parsed = JSON.parse(jsonStr);
-    if (!parsed.gameState || !SaveManager.isValidCityState(parsed.gameState)) {
-      return false;
-    }
-    saveGame(slotId, parsed.gameState, parsed.cityName || 'Imported City');
-    return true;
-  } catch {
-    return false;
-  }
-}

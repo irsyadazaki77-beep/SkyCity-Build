@@ -19,7 +19,8 @@ export const TerrainMaterial = () => {
       varying vec4 vTerrainData;
 
       void main() {
-        vNormal = normalize(normalMatrix * normal);
+        mat3 m = mat3(modelMatrix);
+        vNormal = normalize(m * normal);
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPosition.xyz;
         vTerrainData = aTerrainData;
@@ -84,10 +85,10 @@ export const TerrainMaterial = () => {
         vec3 diffuseColor = grass;
 
         // Shoreline Blending
-        float sandFactor = smoothstep(0.38, 0.06, elevation);
+        float sandFactor = 1.0 - smoothstep(0.06, 0.38, elevation);
         diffuseColor = mix(diffuseColor, sand, sandFactor);
 
-        float wetFactor = smoothstep(0.28, 0.02, waterWeight);
+        float wetFactor = 1.0 - smoothstep(0.02, 0.28, waterWeight);
         diffuseColor = mix(diffuseColor, wetSand, wetFactor * 0.82);
 
         // Slopes & Steep Cliffs
@@ -252,7 +253,8 @@ export const TreeMaterial = (color: string, roughness: number = 0.8) => {
       varying vec3 vWorldPosition;
 
       void main() {
-        vNormal = normalize(normalMatrix * normal);
+        mat3 m = mat3(modelMatrix * instanceMatrix);
+        vNormal = normalize(m * normal);
         vec4 instancePos = instanceMatrix * vec4(position, 1.0);
         
         // Gentle wind sway on top foliage
@@ -310,10 +312,11 @@ export const BuildingShaderMaterial = (
       varying vec2 vStatus;
 
       void main() {
-        vNormal = normalize(normalMatrix * normal);
+        mat3 m = mat3(modelMatrix * instanceMatrix);
+        vNormal = normalize(m * normal);
         vLocalPosition = position;
         vStatus = aStatus;
-        vec4 worldPos = instanceMatrix * vec4(position, 1.0);
+        vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
         vWorldPosition = worldPos.xyz;
         vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;

@@ -7,10 +7,13 @@ import {
   SimulationTickDelta,
   CompactTileUpdate,
   BUILD_COSTS,
+  SimulationCommandResult,
 } from '../../types';
 import { ChunkManager, CHUNK_SIZE } from './ChunkManager';
 import { SimulationEngine, mulberry32 } from './SimulationEngine';
 import { SimulatedVehicle, SimulatedPedestrian } from '../../types';
+import { GAME_CONFIG } from '../../config';
+import { MISSIONS, TECH_NODES } from '../../progression';
 
 export class AuthoritativeSimulation {
   private state: CityState;
@@ -19,6 +22,8 @@ export class AuthoritativeSimulation {
   private revisions: WorldRevisions;
   private vehicles: SimulatedVehicle[] = [];
   private pedestrians: SimulatedPedestrian[] = [];
+  private stateVersion: number = 0;
+  private commandCounter: number = 0;
 
   constructor(initialState: CityState) {
     this.state = initialState;
@@ -57,33 +62,57 @@ export class AuthoritativeSimulation {
   public getPedestrians(): SimulatedPedestrian[] {
     return this.pedestrians;
   }
+  
+  public getStateVersion(): number {
+    return this.stateVersion;
+  }
 
   /**
    * Process incoming command incrementally without cloning the full grid
    */
-  public executeCommand(cmd: SimulationCommand): {
-    revisions: WorldRevisions;
-    dirtyTerrain: string[];
-    dirtyRoads: string[];
-    dirtyBuildings: string[];
-    changedTiles: CompactTileUpdate[];
-  } {
+  public executeCommand(cmd: SimulationCommand): SimulationCommandResult {
+    this.commandCounter++;
+    const currentCommandId = this.commandCounter;
     const grid = this.state.grid;
     const height = grid.length;
     const width = grid[0]?.length || 0;
     const changedTiles: CompactTileUpdate[] = [];
 
+    const fail = (reason: any): SimulationCommandResult => ({
+      type: 'COMMAND_RESULT',
+      commandId: currentCommandId,
+      commandType: cmd.type,
+      success: false,
+      reason,
+      stateVersion: this.stateVersion,
+    });
+
     switch (cmd.type) {
       case 'BUILD_ROAD': {
         const { tiles } = cmd.payload as { tiles: [number, number][] };
-        let cost = 0;
         const roadCost = BUILD_COSTS[TileType.ROAD] || 10;
+        
+        let validTiles = 0;
+        for (const [x, y] of tiles) {
+          if (x >= 0 && x < width && y >= 0 && y < height) {
+             if (grid[y][x].type !== TileType.ROAD && !grid[y][x].water) {
+                 validTiles++;
+             }
+          }
+        }
+        
+        const totalCost = validTiles * roadCost;
+        if (totalCost > 0 && this.state.money < totalCost) {
+           return fail('INSUFFICIENT_FUNDS');
+        }
+
+        let cost = 0;
         let roadsChanged = false;
 
         for (const [x, y] of tiles) {
           if (x >= 0 && x < width && y >= 0 && y < height) {
             const tile = grid[y][x];
-            if (tile.type !== TileType.ROAD) {
+            if (tile.type !== TileType.ROAD && !tile.water) {
               tile.type = TileType.ROAD;
               tile.level = 1;
               tile.abandoned = false;
@@ -108,21 +137,37 @@ export class AuthoritativeSimulation {
         if (roadsChanged) {
           this.revisions.roadRevision++;
           this.revisions.simulationStatsRevision++;
-          this.state.money = Math.max(0, this.state.money - cost);
+          this.state.money -= cost;
+          this.stateVersion++;
         }
         break;
       }
 
       case 'BUILD_ZONE': {
         const { tiles, type } = cmd.payload as { tiles: [number, number][]; type: TileType };
-        let cost = 0;
         const zoneCost = BUILD_COSTS[type] || 50;
+        
+        let validTiles = 0;
+        for (const [x, y] of tiles) {
+          if (x >= 0 && x < width && y >= 0 && y < height) {
+             if (grid[y][x].type !== type && !grid[y][x].water && grid[y][x].type !== TileType.ROAD) {
+                 validTiles++;
+             }
+          }
+        }
+        
+        const totalCost = validTiles * zoneCost;
+        if (totalCost > 0 && this.state.money < totalCost) {
+           return fail('INSUFFICIENT_FUNDS');
+        }
+
+        let cost = 0;
         let buildingsChanged = false;
 
         for (const [x, y] of tiles) {
           if (x >= 0 && x < width && y >= 0 && y < height) {
             const tile = grid[y][x];
-            if (tile.type !== type) {
+            if (tile.type !== type && !tile.water && tile.type !== TileType.ROAD) {
               tile.type = type;
               tile.level = 1;
               tile.abandoned = false;
@@ -153,7 +198,8 @@ export class AuthoritativeSimulation {
         if (buildingsChanged) {
           this.revisions.buildingRevision++;
           this.revisions.simulationStatsRevision++;
-          this.state.money = Math.max(0, this.state.money - cost);
+          this.state.money -= cost;
+          this.stateVersion++;
         }
         break;
       }
@@ -162,6 +208,7 @@ export class AuthoritativeSimulation {
         const { tiles } = cmd.payload as { tiles: [number, number][] };
         let roadDirty = false;
         let buildingDirty = false;
+        let changed = false;
 
         for (const [x, y] of tiles) {
           if (x >= 0 && x < width && y >= 0 && y < height) {
@@ -183,6 +230,7 @@ export class AuthoritativeSimulation {
               tile.powered = false;
               tile.watered = false;
               tile.abandoned = false;
+              changed = true;
 
               changedTiles.push({
                 x,
@@ -200,9 +248,12 @@ export class AuthoritativeSimulation {
           }
         }
 
-        if (roadDirty) this.revisions.roadRevision++;
-        if (buildingDirty) this.revisions.buildingRevision++;
-        if (roadDirty || buildingDirty) this.revisions.simulationStatsRevision++;
+        if (changed) {
+          if (roadDirty) this.revisions.roadRevision++;
+          if (buildingDirty) this.revisions.buildingRevision++;
+          this.revisions.simulationStatsRevision++;
+          this.stateVersion++;
+        }
         break;
       }
 
@@ -212,8 +263,18 @@ export class AuthoritativeSimulation {
           tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN';
           centerElevation?: number;
         };
+        
+        let validTiles = 0;
+        for (const [tx, ty] of tiles) {
+            if (tx >= 0 && tx < width && ty >= 0 && ty < height) validTiles++;
+        }
+        
+        const totalCost = validTiles * 15;
+        if (totalCost > 0 && this.state.money < totalCost) {
+            return fail('INSUFFICIENT_FUNDS');
+        }
 
-        const cost = tiles.length * 15;
+        const cost = validTiles * 15;
         let terrainChanged = false;
 
         for (const [tx, ty] of tiles) {
@@ -221,6 +282,7 @@ export class AuthoritativeSimulation {
             const tile = grid[ty][tx];
             const oldEl = tile.elevation || 0;
             const oldWater = tile.water;
+            const oldType = tile.type; // Save old type to handle ghost objects properly!
 
             if (tool === 'RAISE_TERRAIN') {
               tile.elevation = Math.min(10, oldEl + 1);
@@ -262,19 +324,17 @@ export class AuthoritativeSimulation {
               terrainChanged = true;
               this.chunkManager.markTerrainDirty(tx, ty, true);
 
-              // Sync roads & buildings with terraforming elevation & water status
-              if (tile.type === TileType.ROAD) {
-                if (tile.water) {
+              // Sync roads & buildings with terraforming elevation & water status.
+              // If it turned into water, clear it.
+              if (tile.water && oldType !== TileType.EMPTY) {
                   tile.type = TileType.EMPTY;
-                }
-                this.chunkManager.markRoadDirty(tx, ty);
-                this.revisions.roadRevision++;
-              } else if (tile.type !== TileType.EMPTY) {
-                if (tile.water) {
-                  tile.type = TileType.EMPTY;
-                }
-                this.chunkManager.markBuildingDirty(tx, ty);
-                this.revisions.buildingRevision++;
+                  if (oldType === TileType.ROAD) {
+                      this.chunkManager.markRoadDirty(tx, ty);
+                      this.revisions.roadRevision++;
+                  } else {
+                      this.chunkManager.markBuildingDirty(tx, ty);
+                      this.revisions.buildingRevision++;
+                  }
               }
 
               changedTiles.push({
@@ -291,7 +351,8 @@ export class AuthoritativeSimulation {
         if (terrainChanged) {
           this.revisions.terrainRevision++;
           this.revisions.simulationStatsRevision++;
-          this.state.money = Math.max(0, this.state.money - cost);
+          this.state.money -= cost;
+          this.stateVersion++;
         }
         break;
       }
@@ -312,6 +373,7 @@ export class AuthoritativeSimulation {
           if (industrial !== undefined) this.state.industrialTaxRate = industrial;
         }
         this.revisions.simulationStatsRevision++;
+        this.stateVersion++;
         break;
       }
 
@@ -321,48 +383,78 @@ export class AuthoritativeSimulation {
         if (active && !current.includes(policyId)) {
           this.state.activePolicies = [...current, policyId];
           this.revisions.simulationStatsRevision++;
+          this.stateVersion++;
         } else if (!active && current.includes(policyId)) {
           this.state.activePolicies = current.filter((p) => p !== policyId);
           this.revisions.simulationStatsRevision++;
+          this.stateVersion++;
         }
         break;
       }
 
       case 'UNLOCK_REGION': {
-        const { rx, ry, cost = 15000 } = cmd.payload as { rx: number; ry: number; cost?: number };
+        const { rx, ry } = cmd.payload as { rx: number; ry: number };
+        const cost = GAME_CONFIG.REGION_UNLOCK_COST;
         const regKey = `${rx},${ry}`;
         const unlocked = this.state.unlockedRegions || [];
-        if (!unlocked.includes(regKey)) {
-          if (this.state.money >= cost) {
-            this.state.money -= cost;
-            this.state.unlockedRegions = [...unlocked, regKey];
-            this.chunkManager.setRegionUnlocked(rx, ry, true);
-            this.revisions.terrainRevision++;
-            this.revisions.simulationStatsRevision++;
-          }
+        if (unlocked.includes(regKey)) {
+            return fail('ALREADY_UNLOCKED');
         }
+        if (this.state.money < cost) {
+            return fail('INSUFFICIENT_FUNDS');
+        }
+        this.state.money -= cost;
+        this.state.unlockedRegions = [...unlocked, regKey];
+        this.chunkManager.setRegionUnlocked(rx, ry, true);
+        this.revisions.terrainRevision++;
+        this.revisions.simulationStatsRevision++;
+        this.stateVersion++;
         break;
       }
 
       case 'CLAIM_REWARD': {
-        const { missionId, reward } = cmd.payload as { missionId: string; reward: number };
+        const { missionId } = cmd.payload as { missionId: string };
         const completed = this.state.completedMissions || [];
-        if (!completed.includes(missionId)) {
-          this.state.completedMissions = [...completed, missionId];
-          this.state.money += reward;
-          this.revisions.simulationStatsRevision++;
+        if (completed.includes(missionId)) {
+            return fail('ALREADY_UNLOCKED');
         }
+        
+        const mission = MISSIONS.find(m => m.id === missionId);
+        if (!mission) {
+            return fail('INVALID_COMMAND');
+        }
+        
+        if (!mission.check(this.state)) {
+            return fail('MISSION_NOT_COMPLETED');
+        }
+
+        this.state.completedMissions = [...completed, missionId];
+        this.state.money += mission.rewardMoney;
+        this.revisions.simulationStatsRevision++;
+        this.stateVersion++;
         break;
       }
 
       case 'UNLOCK_TECH': {
-        const { techId, cost } = cmd.payload as { techId: string; cost: number };
+        const { techId } = cmd.payload as { techId: string };
         const current = this.state.unlockedUpgrades || [];
-        if (!current.includes(techId)) {
-          this.state.unlockedUpgrades = [...current, techId];
-          this.state.money = Math.max(0, this.state.money - cost);
-          this.revisions.simulationStatsRevision++;
+        if (current.includes(techId)) {
+            return fail('ALREADY_UNLOCKED');
         }
+        
+        const tech = TECH_NODES.find(t => t.id === techId);
+        if (!tech) {
+            return fail('INVALID_COMMAND');
+        }
+        
+        if (this.state.money < tech.cost) {
+            return fail('INSUFFICIENT_FUNDS');
+        }
+
+        this.state.unlockedUpgrades = [...current, techId];
+        this.state.money -= tech.cost;
+        this.revisions.simulationStatsRevision++;
+        this.stateVersion++;
         break;
       }
 
@@ -372,18 +464,30 @@ export class AuthoritativeSimulation {
         this.revisions.terrainRevision++;
         this.revisions.roadRevision++;
         this.revisions.buildingRevision++;
+        this.revisions.vehicleRevision++;
+        this.revisions.pedestrianRevision++;
         this.revisions.simulationStatsRevision++;
+        this.vehicles = [];
+        this.pedestrians = [];
+        this.stateVersion++;
         break;
       }
     }
 
     const dirty = this.chunkManager.consumeDirtyChunks();
+    const { grid: _omitGrid, ...statsDelta } = this.state;
     return {
+      type: 'COMMAND_RESULT',
+      commandId: currentCommandId,
+      commandType: cmd.type,
+      success: true,
+      stateVersion: this.stateVersion,
+      stats: statsDelta,
       revisions: { ...this.revisions },
-      dirtyTerrain: dirty.terrain,
-      dirtyRoads: dirty.roads,
-      dirtyBuildings: dirty.buildings,
-      changedTiles,
+      dirtyTerrain: cmd.type === 'LOAD_STATE' ? ['all'] : dirty.terrain,
+      dirtyRoads: cmd.type === 'LOAD_STATE' ? ['all'] : dirty.roads,
+      dirtyBuildings: cmd.type === 'LOAD_STATE' ? ['all'] : dirty.buildings,
+      changedTiles: cmd.type === 'LOAD_STATE' ? [] : changedTiles,
     };
   }
 
@@ -467,6 +571,8 @@ export class AuthoritativeSimulation {
     this.generateAgents();
     this.revisions.vehicleRevision++;
     this.revisions.pedestrianRevision++;
+    
+    this.stateVersion++;
 
     const dirty = this.chunkManager.consumeDirtyChunks();
     const t1 = performance.now();
@@ -491,6 +597,7 @@ export class AuthoritativeSimulation {
       durationMs,
       payloadSizeBytes: estimatedSizeBytes,
       changedChunksCount: dirty.terrain.length + dirty.roads.length + dirty.buildings.length,
+      stateVersion: this.stateVersion,
     };
   }
 

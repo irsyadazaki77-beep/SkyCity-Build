@@ -1,5 +1,5 @@
 import { TileData, TileType, CityState } from './types';
-import { RoadGraph, getAdjacentRoadNodeKey } from './traffic';
+import { RoadGraph, getAdjacentRoadNodeKey } from './core/simulation/TrafficSubsystem';
 
 export const RESIDENTIAL_CAPACITIES = [0, 4, 12, 25, 50, 100];
 export const COMMERCIAL_CAPACITIES = [0, 4, 12, 25, 50, 90];

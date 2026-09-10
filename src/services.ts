@@ -1,6 +1,6 @@
 import { TileData, TileType } from './types';
 import { GAME_CONFIG } from './config';
-import { RoadGraph, getAdjacentRoadNodeKey } from './traffic';
+import { RoadGraph, getAdjacentRoadNodeKey } from './core/simulation/TrafficSubsystem';
 
 export interface NetworkUtilityResult {
   powerCapacity: number;

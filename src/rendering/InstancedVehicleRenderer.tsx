@@ -2,13 +2,13 @@ import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SimulatedVehicle } from '../types';
+import { GraphicsState } from "./GraphicsState";
 import { gridToWorld } from '../components/world/types3D';
 
 interface InstancedVehicleRendererProps {
   vehicles: SimulatedVehicle[];
   gridWidth: number;
   gridHeight: number;
-  nightFactor: number;
 }
 
 const dummyMatrix = new THREE.Matrix4();
@@ -25,7 +25,6 @@ export function InstancedVehicleRenderer({
   vehicles,
   gridWidth,
   gridHeight,
-  nightFactor,
 }: InstancedVehicleRendererProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const visualStateRef = useRef<Map<number, VehicleVisualState>>(new Map());
@@ -90,7 +89,8 @@ export function InstancedVehicleRenderer({
       mesh.setMatrixAt(i, dummyMatrix);
 
       dummyColor.set(v.color || '#3b82f6');
-      if (nightFactor > 0.3) {
+      const currentNightFactor = GraphicsState.uniforms.uNightFactor.value;
+      if (currentNightFactor > 0.3) {
         dummyColor.lerp(new THREE.Color('#fef08a'), 0.35); // Headlight glow at night
       }
       mesh.setColorAt(i, dummyColor);

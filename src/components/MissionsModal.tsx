@@ -7,7 +7,7 @@ interface MissionsModalProps {
   isOpen: boolean;
   onClose: () => void;
   gameState: CityState;
-  onClaimReward: (missionId: string, reward: number) => void;
+  onClaimReward: (missionId: string) => void;
 }
 
 export function MissionsModal({
@@ -100,7 +100,7 @@ export function MissionsModal({
                         </span>
                       ) : isFulfilled ? (
                         <button
-                          onClick={() => onClaimReward(m.id, m.rewardMoney)}
+                          onClick={() => onClaimReward(m.id)}
                           className="px-4 py-2 bg-[#D4AF37] text-black font-bold font-mono text-xs rounded-xl hover:bg-[#c29f2e] transition-colors shadow-md"
                         >
                           Claim Reward

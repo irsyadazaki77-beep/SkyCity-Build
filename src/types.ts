@@ -51,13 +51,20 @@ export interface ActiveEvent {
   remainingDays: number;
 }
 
+import { BuildingEntity } from './core/simulation/entities/BuildingEntity';
+
 export interface TileData {
   type: TileType;
   x: number;
   y: number;
-  level: number;       // Level 1 to 5
-  population: number; 
-  jobs: number; 
+  
+  // Building Entity Reference (Incremental Migration)
+  buildingId?: string; 
+  
+  // These are legacy fields, slowly being migrated to BuildingEntity
+  level?: number;       // Level 1 to 5
+  population?: number; 
+  jobs?: number; 
   traffic: number;
   powered: boolean;
   watered: boolean;
@@ -225,6 +232,7 @@ export interface BenchmarkMetrics {
 // -------------------------------------------------------------
 export interface CityState {
   grid: TileData[][];
+  buildings?: Record<string, BuildingEntity>;
   money: number;
   population: number;
   day: number;
@@ -347,6 +355,7 @@ export interface CompactTileUpdate {
   x: number;
   y: number;
   type?: TileType;
+  buildingId?: string;
   level?: number;
   elevation?: number;
   water?: boolean;
@@ -367,20 +376,48 @@ export type SimulationCommand =
   | { type: 'BUILD_ZONE'; payload: { tiles: [number, number][]; type: TileType } }
   | { type: 'BULLDOZE'; payload: { tiles: [number, number][] } }
   | { type: 'TERRAFORM'; payload: { tiles: [number, number][]; tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN'; centerElevation?: number } }
-  | { type: 'SET_TAX'; payload: { zoneType?: 'residential' | 'commercial' | 'industrial'; rate?: number; res?: number; com?: number; ind?: number; residential?: number; commercial?: number; industrial?: number } }
+  | { type: 'SET_TAX'; payload: { zoneType?: 'residential' | 'commercial' | 'industrial'; rate?: number; residential?: number; commercial?: number; industrial?: number; res?: number; com?: number; ind?: number } }
   | { type: 'SET_POLICY'; payload: { policyId: string; active: boolean } }
-  | { type: 'UNLOCK_REGION'; payload: { rx: number; ry: number; cost?: number } }
-  | { type: 'UNLOCK_TECH'; payload: { techId: string; cost: number } }
+  | { type: 'UNLOCK_REGION'; payload: { rx: number; ry: number } }
+  | { type: 'UNLOCK_TECH'; payload: { techId: string } }
   | { type: 'LOAD_STATE'; payload: CityState }
   | { type: 'CHANGE_SPEED'; payload: { speed: number } }
-  | { type: 'CLAIM_REWARD'; payload: { missionId: string; reward: number } };
+  | { type: 'CLAIM_REWARD'; payload: { missionId: string } };
 
 export type SimulationCommandType = SimulationCommand['type'];
 
+export type CommandFailureReason = 
+  | 'INSUFFICIENT_FUNDS' 
+  | 'INVALID_TILE' 
+  | 'LOCKED_REGION' 
+  | 'TECH_LOCKED' 
+  | 'INVALID_COMMAND'
+  | 'ALREADY_UNLOCKED'
+  | 'MISSION_NOT_COMPLETED'
+  | 'UNKNOWN';
+
+export interface SimulationCommandResult {
+  type: 'COMMAND_RESULT';
+  commandId: number;
+  commandType: SimulationCommandType;
+  success: boolean;
+  reason?: CommandFailureReason;
+  stateVersion: number;
+  stats?: Partial<CityState>;
+  changedTiles?: CompactTileUpdate[];
+  dirtyTerrain?: string[];
+  dirtyRoads?: string[];
+  dirtyBuildings?: string[];
+  revisions?: WorldRevisions;
+}
+
 export interface SimulationTickDelta {
   type: 'TICK_DELTA';
+  stateVersion: number;
   stats: Partial<CityState>;
   changedTiles: CompactTileUpdate[];
+  changedBuildings?: BuildingEntity[];
+  removedBuildings?: string[];
   dirtyTerrainChunkKeys: string[];
   dirtyRoadChunkKeys: string[];
   dirtyBuildingChunkKeys: string[];

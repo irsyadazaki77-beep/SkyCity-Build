@@ -90,7 +90,8 @@ export function DayNightSky({ day, speed }: DayNightSkyProps) {
   const sunRef = useRef<THREE.DirectionalLight>(null);
   const skyRef = useRef<THREE.ShaderMaterial>(null);
   const skyMeshRef = useRef<THREE.Mesh>(null);
-  const timeRef = useRef<number>(0.3); // Start at morning/daylight (0.3)
+  const timeRef = useRef<number>((day % 50) / 50.0);
+  const lastDayRef = useRef<number>(day);
 
   const skyUniforms = useMemo(() => ({
     uSunDirection: GraphicsState.uniforms.uSunDirection,
@@ -104,6 +105,11 @@ export function DayNightSky({ day, speed }: DayNightSkyProps) {
     if (skyMeshRef.current) {
       skyMeshRef.current.position.copy(state.camera.position);
     }
+
+    if (Math.abs(day - lastDayRef.current) > 1) {
+      timeRef.current = (day % 50) / 50.0;
+    }
+    lastDayRef.current = day;
 
     if (speed > 0) {
       const cycleRate = speed === 2 ? 0.05 : 0.02;

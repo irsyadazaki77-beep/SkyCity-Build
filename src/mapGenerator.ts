@@ -201,26 +201,64 @@ export function generateWorld(params: GeneratorParams): TileData[][] {
     grid.push(row);
   }
 
-  // 3. Construct Outside Connection: Dual Highway running left-to-right at center
-  const highwayY = Math.min(Math.floor(WORLD_H / 2), WORLD_H - 1);
-  for (let x = 0; x < WORLD_W; x++) {
-    if (highwayY < WORLD_H && grid[highwayY] && grid[highwayY][x]) {
-      const t1 = grid[highwayY][x];
-      t1.type = TileType.ROAD;
-      t1.elevation = 1;
-      t1.water = false;
-      t1.powered = true;
-      t1.watered = true;
+  // 3. Construct Outside Connection: Dynamic highway based on seed
+  const hType = Math.floor(rnd() * 3); // 0: Horizontal, 1: Vertical, 2: Curved corner
+  
+  if (hType === 0) {
+    // Horizontal highway with some curve
+    const startY = Math.floor(WORLD_H * 0.3 + rnd() * 0.4 * WORLD_H);
+    for (let x = 0; x < WORLD_W; x++) {
+      // Add slight sine wave curve
+      const y = Math.floor(startY + Math.sin(x * 0.1) * 3);
+      if (y >= 0 && y < WORLD_H - 1) {
+        for (let dy = 0; dy < 2; dy++) {
+          const t = grid[y + dy][x];
+          t.type = TileType.ROAD;
+          t.powered = true;
+          t.watered = true;
+        }
+      }
     }
-
-    // Dual highway has double lanes
-    if (highwayY + 1 < WORLD_H && grid[highwayY + 1] && grid[highwayY + 1][x]) {
-      const t2 = grid[highwayY + 1][x];
-      t2.type = TileType.ROAD;
-      t2.elevation = 1;
-      t2.water = false;
-      t2.powered = true;
-      t2.watered = true;
+  } else if (hType === 1) {
+    // Vertical highway
+    const startX = Math.floor(WORLD_W * 0.3 + rnd() * 0.4 * WORLD_W);
+    for (let y = 0; y < WORLD_H; y++) {
+      const x = Math.floor(startX + Math.sin(y * 0.1) * 3);
+      if (x >= 0 && x < WORLD_W - 1) {
+        for (let dx = 0; dx < 2; dx++) {
+          const t = grid[y][x + dx];
+          t.type = TileType.ROAD;
+          t.powered = true;
+          t.watered = true;
+        }
+      }
+    }
+  } else {
+    // Curved corner L-shape
+    const pivotX = Math.floor(WORLD_W / 2);
+    const pivotY = Math.floor(WORLD_H / 2);
+    // Left edge to center, then down
+    for (let x = 0; x <= pivotX; x++) {
+      const y = pivotY;
+      for (let dy = 0; dy < 2; dy++) {
+        if (y + dy < WORLD_H) {
+          const t = grid[y + dy][x];
+          t.type = TileType.ROAD;
+          t.powered = true;
+          t.watered = true;
+        }
+      }
+    }
+    for (let y = pivotY; y < WORLD_H; y++) {
+      const x = pivotX;
+      for (let dx = 0; dx < 2; dx++) {
+        if (x + dx < WORLD_W) {
+          const t = grid[y][x + dx];
+          t.type = TileType.ROAD;
+          t.powered = true;
+          t.watered = true;
+        }
+      }
     }
   }
 

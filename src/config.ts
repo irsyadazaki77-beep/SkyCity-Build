@@ -139,4 +139,6 @@ export const GAME_CONFIG = {
     BUS_NETWORK_REDUCTION: 0.25,    // 25% traffic volume reduction with municipal bus network
     TRAM_SYSTEM_REDUCTION: 0.35,    // 35% traffic volume reduction with light rail / tram network
   },
+  
+  REGION_UNLOCK_COST: 15000,
 };

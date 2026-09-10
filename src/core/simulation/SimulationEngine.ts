@@ -2,9 +2,10 @@ import { CityState, TileData, TileType, ActiveEvent, HistoryRecord } from '../..
 import { GAME_CONFIG } from '../../config';
 import { ChunkManager } from './ChunkManager';
 import { CitizenSubsystem } from './CitizenSubsystem';
-import { TrafficSubsystem, buildRoadGraph } from './TrafficSubsystem';
+import { TrafficSubsystem } from './TrafficSubsystem';
 import { simulateUtilityNetworks } from './UtilitiesSubsystem';
 import { EconomySubsystem } from './EconomySubsystem';
+import { EntityRegistry } from './entities/EntityRegistry';
 import { simulateCityServices } from '../../services';
 import { 
   simulateCityDepthAndEnvironment, 
@@ -329,6 +330,7 @@ export class SimulationEngine {
   private citizenSubsystem = new CitizenSubsystem();
   private trafficSubsystem = new TrafficSubsystem();
   private economySubsystem = new EconomySubsystem();
+  private entityRegistry = new EntityRegistry();
   public chunkManager = new ChunkManager(GRID_WIDTH, GRID_HEIGHT);
 
   public simulateTick(prevState: CityState): CityState {
@@ -398,7 +400,7 @@ export class SimulationEngine {
     );
 
     const trafficResult = this.trafficSubsystem.simulate(nextGrid, employedCitizens, prevState.unlockedUpgrades);
-    const roadGraph = buildRoadGraph(nextGrid, prevState.unlockedUpgrades);
+    const roadGraph = this.trafficSubsystem.roadNetwork.getGraph();
 
     const servicesResult = simulateCityServices(
       nextGrid,
@@ -454,6 +456,7 @@ export class SimulationEngine {
     const nextState: CityState = {
       ...prevState,
       grid: nextGrid,
+      buildings: this.entityRegistry.getBuildingsAsRecord(),
       day: prevState.day + 1,
       money: nextMoney,
       population: totalPop,

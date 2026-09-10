@@ -102,76 +102,275 @@ class MinPriorityQueue {
   }
 }
 
-let cachedGraph: RoadGraph | null = null;
-const pathCache = new Map<string, { path: string[]; travelTime: number }>();
+export class RoadNetwork {
+  private graph: RoadGraph = {
+    nodes: new Map(),
+    roadCount: 0,
+    intersectionCount: 0,
+    signature: 'INITIAL'
+  };
+  private pathCache = new Map<string, { path: string[]; travelTime: number }>();
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  private cacheEvictions = 0;
+  private revision = 0;
+  private unlockedUpgrades: string[] = [];
 
-export function buildRoadGraph(grid: TileData[][], unlockedUpgrades: string[] = []): RoadGraph {
-  const height = grid.length;
-  const width = grid[0]?.length || 0;
-  const hasAsphalt = unlockedUpgrades.includes('asphalt_roads');
+  constructor() {}
 
-  let signature = hasAsphalt ? 'ASPHALT:' : 'STD:';
-  const roadCoords: [number, number][] = [];
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (grid[y][x].type === TileType.ROAD) {
-        roadCoords.push([x, y]);
-        signature += `${x},${y};`;
-      }
-    }
+  public getGraph(): RoadGraph {
+    return this.graph;
   }
 
-  if (cachedGraph && cachedGraph.signature === signature) {
-    return cachedGraph;
+  public getRevision(): number {
+    return this.revision;
   }
 
-  pathCache.clear();
+  public clearCache(): void {
+    this.pathCache.clear();
+  }
 
-  const nodes = new Map<string, RoadNode>();
-  const baseCapacity = hasAsphalt
-    ? GAME_CONFIG.ROAD_NETWORK.BASE_CAPACITY + GAME_CONFIG.ROAD_NETWORK.ASPHALT_CAPACITY_BONUS
-    : GAME_CONFIG.ROAD_NETWORK.BASE_CAPACITY;
-  let intersectionCount = 0;
+  public rebuildFull(grid: TileData[][], unlockedUpgrades: string[] = []): void {
+    this.unlockedUpgrades = unlockedUpgrades;
+    const height = grid.length;
+    const width = grid[0]?.length || 0;
+    
+    this.graph.nodes.clear();
+    this.graph.roadCount = 0;
+    this.graph.intersectionCount = 0;
+    this.revision++;
+    this.graph.signature = `REV:${this.revision}`;
 
-  for (const [x, y] of roadCoords) {
-    const key = `${x},${y}`;
-    const neighbors: string[] = [];
+    const hasAsphalt = unlockedUpgrades.includes('asphalt_roads');
+    const baseCapacity = hasAsphalt
+      ? GAME_CONFIG.ROAD_NETWORK.BASE_CAPACITY + GAME_CONFIG.ROAD_NETWORK.ASPHALT_CAPACITY_BONUS
+      : GAME_CONFIG.ROAD_NETWORK.BASE_CAPACITY;
 
     const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (grid[y][x].type === TileType.ROAD) {
+          const key = `${x},${y}`;
+          const neighbors: string[] = [];
+          for (const [dx, dy] of dirs) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+              if (grid[ny][nx].type === TileType.ROAD) {
+                neighbors.push(`${nx},${ny}`);
+              }
+            }
+          }
+          
+          const isIntersection = neighbors.length >= 3;
+          if (isIntersection) this.graph.intersectionCount++;
+
+          this.graph.nodes.set(key, {
+            x, y, key, neighbors,
+            degree: neighbors.length,
+            isIntersection,
+            capacity: baseCapacity
+          });
+          this.graph.roadCount++;
+        }
+      }
+    }
+    
+    this.clearCache();
+  }
+
+  public addRoadNode(x: number, y: number, grid: TileData[][], unlockedUpgrades: string[] = []): void {
+    this.unlockedUpgrades = unlockedUpgrades;
+    const height = grid.length;
+    const width = grid[0]?.length || 0;
+    
+    const hasAsphalt = unlockedUpgrades.includes('asphalt_roads');
+    const baseCapacity = hasAsphalt
+      ? GAME_CONFIG.ROAD_NETWORK.BASE_CAPACITY + GAME_CONFIG.ROAD_NETWORK.ASPHALT_CAPACITY_BONUS
+      : GAME_CONFIG.ROAD_NETWORK.BASE_CAPACITY;
+
+    const key = `${x},${y}`;
+    if (this.graph.nodes.has(key)) return;
+
+    const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+    const neighbors: string[] = [];
+    
     for (const [dx, dy] of dirs) {
       const nx = x + dx;
       const ny = y + dy;
       if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
         if (grid[ny][nx].type === TileType.ROAD) {
-          neighbors.push(`${nx},${ny}`);
+          const nKey = `${nx},${ny}`;
+          neighbors.push(nKey);
+          
+          // Update neighbor
+          const neighborNode = this.graph.nodes.get(nKey);
+          if (neighborNode) {
+            if (!neighborNode.neighbors.includes(key)) {
+              neighborNode.neighbors.push(key);
+              neighborNode.degree = neighborNode.neighbors.length;
+              if (neighborNode.degree === 3) {
+                neighborNode.isIntersection = true;
+                this.graph.intersectionCount++;
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    const isIntersection = neighbors.length >= 3;
+    if (isIntersection) this.graph.intersectionCount++;
+
+    this.graph.nodes.set(key, {
+      x, y, key, neighbors,
+      degree: neighbors.length,
+      isIntersection,
+      capacity: baseCapacity
+    });
+    this.graph.roadCount++;
+    
+    this.revision++;
+    this.graph.signature = `REV:${this.revision}`;
+    this.clearCache();
+  }
+
+  public removeRoadNode(x: number, y: number, grid: TileData[][]): void {
+    const key = `${x},${y}`;
+    const node = this.graph.nodes.get(key);
+    if (!node) return;
+
+    if (node.isIntersection) this.graph.intersectionCount--;
+    
+    for (const nKey of node.neighbors) {
+      const neighborNode = this.graph.nodes.get(nKey);
+      if (neighborNode) {
+        neighborNode.neighbors = neighborNode.neighbors.filter(k => k !== key);
+        neighborNode.degree = neighborNode.neighbors.length;
+        if (neighborNode.degree === 2 && neighborNode.isIntersection) {
+          neighborNode.isIntersection = false;
+          this.graph.intersectionCount--;
+        }
+      }
+    }
+    
+    this.graph.nodes.delete(key);
+    this.graph.roadCount--;
+    
+    this.revision++;
+    this.graph.signature = `REV:${this.revision}`;
+    this.clearCache();
+  }
+
+  public getCachedPath(startKey: string, targetKey: string): { path: string[]; travelTime: number } | null {
+    const key = `${startKey}->${targetKey}`;
+    const entry = this.pathCache.get(key);
+    if (entry) {
+      this.cacheHits++;
+      // Move to back (LRU)
+      this.pathCache.delete(key);
+      this.pathCache.set(key, entry);
+      return entry;
+    }
+    this.cacheMisses++;
+    return null;
+  }
+
+  public setCachedPath(startKey: string, targetKey: string, result: { path: string[]; travelTime: number }): void {
+    const key = `${startKey}->${targetKey}`;
+    if (this.pathCache.size >= 2000) {
+      const firstKey = this.pathCache.keys().next().value;
+      if (firstKey) {
+         this.pathCache.delete(firstKey);
+         this.cacheEvictions++;
+      }
+    }
+    this.pathCache.set(key, result);
+  }
+  public findAStarRoadPath(
+    startKey: string,
+    targetKey: string,
+    roadLoadMap: Map<string, number>
+  ): { path: string[]; travelTime: number } | null {
+    if (startKey === targetKey) {
+      return { path: [startKey], travelTime: 0.5 };
+    }
+
+    const cached = this.getCachedPath(startKey, targetKey);
+    if (cached) return cached;
+
+    const startNode = this.graph.nodes.get(startKey);
+    const targetNode = this.graph.nodes.get(targetKey);
+    if (!startNode || !targetNode) return null;
+
+    const hasAsphalt = this.unlockedUpgrades.includes('asphalt_roads');
+    const hasSmartLights = this.unlockedUpgrades.includes('smart_lights');
+    const baseSpeedMult = hasAsphalt ? GAME_CONFIG.ROAD_NETWORK.ASPHALT_SPEED_MULT : 1.0;
+    const intersectionPenalty = hasSmartLights
+      ? GAME_CONFIG.ROAD_NETWORK.SMART_LIGHTS_PENALTY
+      : GAME_CONFIG.ROAD_NETWORK.BASE_INTERSECTION_PENALTY;
+
+    const gScore = new Map<string, number>();
+    const fScore = new Map<string, number>();
+    const cameFrom = new Map<string, string>();
+
+    const manhattan = (n: RoadNode) => Math.abs(n.x - targetNode.x) + Math.abs(n.y - targetNode.y);
+
+    gScore.set(startKey, 0);
+    fScore.set(startKey, manhattan(startNode));
+
+    const pq = new MinPriorityQueue();
+    pq.push({ key: startKey, cost: 0, priority: manhattan(startNode) });
+
+    const visited = new Set<string>();
+
+    while (!pq.isEmpty()) {
+      const current = pq.pop()!;
+      if (current.key === targetKey) {
+        const path: string[] = [];
+        let curr: string | undefined = targetKey;
+        while (curr) {
+          path.unshift(curr);
+          curr = cameFrom.get(curr);
+        }
+        const result = { path, travelTime: gScore.get(targetKey) || path.length };
+        this.setCachedPath(startKey, targetKey, result);
+        return result;
+      }
+
+      if (visited.has(current.key)) continue;
+      visited.add(current.key);
+
+      const currNode = this.graph.nodes.get(current.key)!;
+      const currentG = gScore.get(current.key) ?? Infinity;
+
+      for (const neighborKey of currNode.neighbors) {
+        if (visited.has(neighborKey)) continue;
+
+        const neighborNode = this.graph.nodes.get(neighborKey)!;
+        const currentLoad = roadLoadMap.get(neighborKey) || 0;
+        const congestionRatio = currentLoad / neighborNode.capacity;
+
+        const edgeCost =
+          baseSpeedMult +
+          (neighborNode.isIntersection ? intersectionPenalty : 0) +
+          Math.pow(congestionRatio, 1.5) * 1.5;
+
+        const tentativeG = currentG + edgeCost;
+
+        if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
+          cameFrom.set(neighborKey, current.key);
+          gScore.set(neighborKey, tentativeG);
+          const f = tentativeG + manhattan(neighborNode);
+          fScore.set(neighborKey, f);
+          pq.push({ key: neighborKey, cost: tentativeG, priority: f });
         }
       }
     }
 
-    const isIntersection = neighbors.length >= 3;
-    if (isIntersection) intersectionCount++;
-
-    nodes.set(key, {
-      x,
-      y,
-      key,
-      neighbors,
-      degree: neighbors.length,
-      isIntersection,
-      capacity: baseCapacity,
-    });
+    return null;
   }
-
-  const graph: RoadGraph = {
-    nodes,
-    roadCount: nodes.size,
-    intersectionCount,
-    signature,
-  };
-
-  cachedGraph = graph;
-  return graph;
 }
 
 export function getAdjacentRoadNodeKey(x: number, y: number, graph: RoadGraph): string | null {
@@ -187,100 +386,12 @@ export function getAdjacentRoadNodeKey(x: number, y: number, graph: RoadGraph): 
   return null;
 }
 
-export function findAStarRoadPath(
-  startKey: string,
-  targetKey: string,
-  graph: RoadGraph,
-  roadLoadMap: Map<string, number>,
-  unlockedUpgrades: string[] = []
-): { path: string[]; travelTime: number } | null {
-  if (startKey === targetKey) {
-    return { path: [startKey], travelTime: 0.5 };
-  }
 
-  const cacheKey = `${startKey}->${targetKey}`;
-  const cached = pathCache.get(cacheKey);
-  if (cached && cached.path.length > 0) {
-    return cached;
-  }
-
-  const startNode = graph.nodes.get(startKey);
-  const targetNode = graph.nodes.get(targetKey);
-  if (!startNode || !targetNode) return null;
-
-  const hasAsphalt = unlockedUpgrades.includes('asphalt_roads');
-  const hasSmartLights = unlockedUpgrades.includes('smart_lights');
-  const baseSpeedMult = hasAsphalt ? GAME_CONFIG.ROAD_NETWORK.ASPHALT_SPEED_MULT : 1.0;
-  const intersectionPenalty = hasSmartLights
-    ? GAME_CONFIG.ROAD_NETWORK.SMART_LIGHTS_PENALTY
-    : GAME_CONFIG.ROAD_NETWORK.BASE_INTERSECTION_PENALTY;
-
-  const gScore = new Map<string, number>();
-  const fScore = new Map<string, number>();
-  const cameFrom = new Map<string, string>();
-
-  const manhattan = (n: RoadNode) => Math.abs(n.x - targetNode.x) + Math.abs(n.y - targetNode.y);
-
-  gScore.set(startKey, 0);
-  fScore.set(startKey, manhattan(startNode));
-
-  const pq = new MinPriorityQueue();
-  pq.push({ key: startKey, cost: 0, priority: manhattan(startNode) });
-
-  const visited = new Set<string>();
-
-  while (!pq.isEmpty()) {
-    const current = pq.pop()!;
-    if (current.key === targetKey) {
-      const path: string[] = [];
-      let curr: string | undefined = targetKey;
-      while (curr) {
-        path.unshift(curr);
-        curr = cameFrom.get(curr);
-      }
-      const result = { path, travelTime: gScore.get(targetKey) || path.length };
-      if (pathCache.size < 500) {
-        pathCache.set(cacheKey, result);
-      }
-      return result;
-    }
-
-    if (visited.has(current.key)) continue;
-    visited.add(current.key);
-
-    const currNode = graph.nodes.get(current.key)!;
-    const currentG = gScore.get(current.key) ?? Infinity;
-
-    for (const neighborKey of currNode.neighbors) {
-      if (visited.has(neighborKey)) continue;
-
-      const neighborNode = graph.nodes.get(neighborKey)!;
-      const currentLoad = roadLoadMap.get(neighborKey) || 0;
-      const congestionRatio = currentLoad / neighborNode.capacity;
-
-      const edgeCost =
-        baseSpeedMult +
-        (neighborNode.isIntersection ? intersectionPenalty : 0) +
-        Math.pow(congestionRatio, 1.5) * 1.5;
-
-      const tentativeG = currentG + edgeCost;
-
-      if (tentativeG < (gScore.get(neighborKey) ?? Infinity)) {
-        cameFrom.set(neighborKey, current.key);
-        gScore.set(neighborKey, tentativeG);
-        const f = tentativeG + manhattan(neighborNode);
-        fScore.set(neighborKey, f);
-        pq.push({ key: neighborKey, cost: tentativeG, priority: f });
-      }
-    }
-  }
-
-  return null;
-}
 
 export class TrafficSubsystem {
   private vehicleIdCounter = 1;
   private pedestrianIdCounter = 1;
+  public roadNetwork = new RoadNetwork();
 
   public simulate(
     grid: TileData[][],
@@ -290,7 +401,11 @@ export class TrafficSubsystem {
     const height = grid.length;
     const width = grid[0]?.length || 0;
 
-    const graph = buildRoadGraph(grid, unlockedUpgrades);
+    // TODO: Ideally we only update incrementally when commands happen, but for now we'll rebuild full
+    // to keep existing functionality working until incremental command is wired.
+    this.roadNetwork.rebuildFull(grid, unlockedUpgrades);
+    const graph = this.roadNetwork.getGraph();
+
     const roadLoadMap = new Map<string, number>();
     const connectedZoneAccess = new Map<string, boolean>();
     const workplaceProductivity = new Map<string, number>();
@@ -406,7 +521,7 @@ export class TrafficSubsystem {
 
           let routeSuccess = false;
           for (const dest of availableDests) {
-            const pathRes = findAStarRoadPath(origin.roadKey, dest.roadKey, graph, roadLoadMap, unlockedUpgrades);
+            const pathRes = this.roadNetwork.findAStarRoadPath(origin.roadKey, dest.roadKey, roadLoadMap);
             if (pathRes) {
               const batchSize = Math.min(workersToRoute, dest.remainingJobs);
               dest.remainingJobs -= batchSize;

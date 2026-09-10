@@ -124,14 +124,18 @@ describe('SkyCity Comprehensive Core Audit Tests', () => {
     };
 
     const sim = new AuthoritativeSimulation(state);
+    
+    // Set population to 50 to satisfy m_pop_50
+    sim.getState().population = 50;
+    
     const cmd: SimulationCommand = {
       type: 'CLAIM_REWARD',
-      payload: { missionId: 'first_road', reward: 5000 }
+      payload: { missionId: 'm_pop_50'}
     };
 
     sim.executeCommand(cmd);
     expect(sim.getState().money).toBe(10000);
-    expect(sim.getState().completedMissions).toContain('first_road');
+    expect(sim.getState().completedMissions).toContain('m_pop_50');
 
     // Claiming again should not add duplicate reward
     sim.executeCommand(cmd);
@@ -192,7 +196,7 @@ describe('SkyCity Comprehensive Core Audit Tests', () => {
     const sim = new AuthoritativeSimulation(state);
     const cmd: SimulationCommand = {
       type: 'UNLOCK_REGION',
-      payload: { rx: 0, ry: 1, cost: 15000 }
+      payload: { rx: 0, ry: 1}
     };
 
     sim.executeCommand(cmd);
@@ -254,7 +258,7 @@ describe('SkyCity Comprehensive Core Audit Tests', () => {
     const sim = new AuthoritativeSimulation(state);
     const cmd: SimulationCommand = {
       type: 'UNLOCK_REGION',
-      payload: { rx: 0, ry: 1, cost: 15000 }
+      payload: { rx: 0, ry: 1}
     };
 
     sim.executeCommand(cmd);

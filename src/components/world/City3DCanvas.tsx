@@ -12,10 +12,11 @@ import {
   GraphicsQualityTier,
   WorldRevisions,
 } from '../../types';
+import { BuildingEntity } from '../../core/simulation/entities/BuildingEntity';
 import { DayNightSky } from './DayNightSky';
 import { CameraController } from './CameraController';
 import { ChunkTerrainRenderer } from '../../rendering/ChunkTerrainRenderer';
-import { SplineRoadRenderer } from '../../rendering/SplineRoadRenderer';
+import { ChunkRoadRenderer } from '../../rendering/ChunkRoadRenderer';
 import { InstancedBuildingRenderer } from '../../rendering/InstancedBuildingRenderer';
 import { EnvironmentProps } from './EnvironmentProps';
 import { InstancedVehicleRenderer } from '../../rendering/InstancedVehicleRenderer';
@@ -23,6 +24,7 @@ import { InstancedPedestrianRenderer } from '../../rendering/InstancedPedestrian
 
 export interface City3DCanvasProps {
   grid: TileData[][];
+  buildings?: Record<string, BuildingEntity>;
   revisions: WorldRevisions;
   dirtyTerrainChunks?: Set<string>;
   dirtyRoadChunks?: Set<string>;
@@ -77,8 +79,11 @@ const WebGLProfiler = () => {
 
 function City3DCanvasBase({
   grid,
+  buildings,
   revisions,
   dirtyTerrainChunks,
+  dirtyRoadChunks,
+  dirtyBuildingChunks,
   day,
   speed,
   activeTool,
@@ -175,10 +180,10 @@ function City3DCanvasBase({
         />
 
         {/* Road Network */}
-        <SplineRoadRenderer
+        <ChunkRoadRenderer
           grid={grid}
           roadRevision={revisions.roadRevision}
-          nightFactor={0} // Pulled from GraphicsState internally
+          dirtyRoadChunks={dirtyRoadChunks}
           showRoadSegments={showRoadSegments}
           showRoadWaterIntersections={showRoadWaterIntersections}
           onRoadRebuild={onRoadRebuild}
@@ -187,8 +192,8 @@ function City3DCanvasBase({
         {/* Buildings */}
         <InstancedBuildingRenderer
           grid={grid}
+          buildings={buildings}
           buildingRevision={revisions.buildingRevision}
-          nightFactor={0} // Pulled from GraphicsState internally
           onBuildingBatchUpdate={onBuildingBatchUpdate}
         />
 
@@ -200,7 +205,6 @@ function City3DCanvasBase({
           vehicles={activeVehicles}
           gridWidth={gridWidth}
           gridHeight={gridHeight}
-          nightFactor={0} // Pulled from GraphicsState internally
         />
 
         <InstancedPedestrianRenderer

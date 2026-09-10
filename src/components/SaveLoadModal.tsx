@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SaveSlotInfo, listSaveSlots, saveGame, loadGame, deleteSave, exportSaveJson, importSaveJson } from '../saveSystem';
+import { SaveSlotInfo, SaveManager } from '../saveSystem';
 import { CityState } from '../types';
 import { X, Save, FolderOpen, Plus, Trash2, Download, Upload, AlertTriangle, RefreshCw } from 'lucide-react';
 
@@ -28,10 +28,17 @@ export function SaveLoadModal({
 
   const [importJsonText, setImportJsonText] = useState<string>('');
   const [showImport, setShowImport] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string>('');
+
+  const refreshSlots = async () => {
+    const s = await SaveManager.listSlots();
+    setSlots(s);
+  };
 
   useEffect(() => {
     if (isOpen) {
-      setSlots(listSaveSlots());
+      refreshSlots();
+      setErrorMsg('');
     }
   }, [isOpen]);
 
@@ -50,17 +57,24 @@ export function SaveLoadModal({
     }
   };
 
-  const executeSave = (slotId: string) => {
-    saveGame(slotId, gameState, cityNameInput);
-    setSlots(listSaveSlots());
+  const executeSave = async (slotId: string) => {
+    setErrorMsg('');
+    const success = await SaveManager.saveGame(slotId, gameState, cityNameInput);
+    if (!success) {
+       setErrorMsg('Failed to save game. State validation error.');
+    }
+    await refreshSlots();
     setConfirmDialog(null);
   };
 
-  const handleLoadFromSlot = (slotId: string) => {
-    const loaded = loadGame(slotId);
+  const handleLoadFromSlot = async (slotId: string) => {
+    setErrorMsg('');
+    const loaded = await SaveManager.loadGame(slotId);
     if (loaded && loaded.gameState) {
       onLoadState(loaded.gameState);
       onClose();
+    } else {
+       setErrorMsg('Failed to load game. Save file might be corrupted.');
     }
   };
 
@@ -72,9 +86,9 @@ export function SaveLoadModal({
     });
   };
 
-  const executeDelete = (slotId: string) => {
-    deleteSave(slotId);
-    setSlots(listSaveSlots());
+  const executeDelete = async (slotId: string) => {
+    await SaveManager.deleteSave(slotId);
+    await refreshSlots();
     setConfirmDialog(null);
   };
 
@@ -91,8 +105,8 @@ export function SaveLoadModal({
     onClose();
   };
 
-  const handleExport = (slotId: string) => {
-    const json = exportSaveJson(slotId);
+  const handleExport = async (slotId: string) => {
+    const json = await SaveManager.exportJson(slotId);
     if (json) {
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -103,13 +117,15 @@ export function SaveLoadModal({
     }
   };
 
-  const handleImportSubmit = (slotId: string) => {
-    if (importSaveJson(slotId, importJsonText)) {
-      setSlots(listSaveSlots());
+  const handleImportSubmit = async (slotId: string) => {
+    setErrorMsg('');
+    const success = await SaveManager.importJson(slotId, importJsonText);
+    if (success) {
+      await refreshSlots();
       setShowImport(false);
       setImportJsonText('');
     } else {
-      alert('Invalid save file format!');
+      setErrorMsg('Invalid save file format!');
     }
   };
 
@@ -155,6 +171,12 @@ export function SaveLoadModal({
               <RefreshCw size={12} /> New Game
             </button>
           </div>
+
+          {errorMsg && (
+            <div className="bg-red-950/50 border border-red-500/50 text-red-300 px-4 py-2 rounded-xl text-xs font-mono flex items-center gap-2">
+               <AlertTriangle size={14} /> {errorMsg}
+            </div>
+          )}
 
           {/* Slots List */}
           <div className="space-y-3">

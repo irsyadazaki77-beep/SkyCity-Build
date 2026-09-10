@@ -78,6 +78,7 @@ export function ChunkTerrainRenderer({
   const prevQualityRef = useRef<GraphicsQualityTier>(graphicsQuality);
 
   const meshRefs = useRef<Map<string, THREE.Mesh>>(new Map());
+  const waterMeshRefs = useRef<Map<string, THREE.Mesh>>(new Map());
   const frustumRef = useRef(new THREE.Frustum());
   const projScreenMatrixRef = useRef(new THREE.Matrix4());
   const lastVisibleCountRef = useRef(-1);
@@ -163,33 +164,40 @@ export function ChunkTerrainRenderer({
     meshRefs.current.forEach((mesh, id) => {
       const entry = cache.get(id);
       if (!entry) return;
+      const waterMesh = waterMeshRefs.current.get(id);
 
       const isVisible = frustumRef.current.intersectsBox(entry.box);
       mesh.visible = isVisible;
+      if (waterMesh) waterMesh.visible = isVisible;
       if (isVisible) visibleCount++;
 
       // Adaptive camera LOD with Hysteresis
       if (isVisible && graphicsQuality !== 'low') {
         const dist = camPos.distanceTo(entry.centerWorld);
         
-        // Hysteresis thresholds:
-        // Switch to LOW LOD if dist > 48
-        // Switch to HIGH LOD if dist < 38
         let targetLod = entry.lod;
         if (entry.lod === 0 && dist > 48) targetLod = 1;
         else if (entry.lod === 1 && dist < 38) targetLod = 0;
 
         if (targetLod !== entry.lod) {
           entry.lod = targetLod;
-          entry.geometry.dispose();
-          if (entry.waterGeometry) entry.waterGeometry.dispose();
+          const oldGeo = entry.geometry;
+          const oldWaterGeo = entry.waterGeometry;
+          
           entry.geometry = TerrainMeshGenerator.generateChunkGeometry(
             grid, entry.minX, entry.minY, entry.maxX, entry.maxY, width, height, targetLod
           );
           entry.waterGeometry = TerrainMeshGenerator.generateChunkWaterGeometry(
             grid, entry.minX, entry.minY, entry.maxX, entry.maxY, width, height, targetLod
           );
+          
           mesh.geometry = entry.geometry;
+          if (waterMesh && entry.waterGeometry) {
+            waterMesh.geometry = entry.waterGeometry;
+          }
+          
+          oldGeo.dispose();
+          if (oldWaterGeo) oldWaterGeo.dispose();
         }
       }
     });
@@ -247,6 +255,10 @@ export function ChunkTerrainRenderer({
           {/* Region-Masked Water Mesh for this Chunk */}
           {chunk.waterGeometry && (
             <mesh
+              ref={(el) => {
+                if (el) waterMeshRefs.current.set(chunk.id, el);
+                else waterMeshRefs.current.delete(chunk.id);
+              }}
               geometry={chunk.waterGeometry}
               material={waterMat}
               receiveShadow

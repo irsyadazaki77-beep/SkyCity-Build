@@ -264,9 +264,7 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high', revision = 0 
         uNightFactor: GraphicsState.uniforms.uNightFactor,
       },
       vertexShader: `
-        varying vec3 vNormal;
         void main() {
-          vNormal = normalize(normalMatrix * normal);
           vec4 worldPos = instanceMatrix * vec4(position, 1.0);
           gl_Position = projectionMatrix * modelViewMatrix * worldPos;
         }

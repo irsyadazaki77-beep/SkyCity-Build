@@ -276,6 +276,13 @@ export default function App() {
       if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
         return { valid: false, reason: 'Invalid terrain boundary' };
       }
+      
+      const rx = Math.floor(x / 20);
+      const ry = Math.floor(y / 20);
+      if (!gameState.unlockedRegions?.includes(`${rx},${ry}`)) {
+        return { valid: false, reason: 'Region not unlocked' };
+      }
+
       const tile = grid[y][x];
 
       if (!isBuildingUnlocked(type, gameState.milestoneLevel ?? 0)) {
@@ -306,7 +313,7 @@ export default function App() {
 
       return { valid: true };
     },
-    [gameState.milestoneLevel]
+    [gameState.milestoneLevel, gameState.unlockedRegions]
   );
 
   const calculateTotalCost = useCallback(
@@ -409,11 +416,18 @@ export default function App() {
   }, [dragStart, dragCurrent, activeTool, gameState, getDragPreviewTiles, calculateTotalCost, validateTilePlacement, addSystemNotification, dispatchCommand]);
 
   const applyBulldoze = useCallback((x: number, y: number) => {
+    const rx = Math.floor(x / 20);
+    const ry = Math.floor(y / 20);
+    if (!gameState.unlockedRegions?.includes(`${rx},${ry}`)) {
+      addSystemNotification('utilities', 'Action Blocked', 'You cannot bulldoze outside your city limits.');
+      return;
+    }
+    
     dispatchCommand({
       type: 'BULLDOZE',
       payload: { tiles: [[x, y]] },
     });
-  }, [dispatchCommand]);
+  }, [dispatchCommand, gameState.unlockedRegions, addSystemNotification]);
 
   const validateAndPlaceSingleTile = useCallback(
     (x: number, y: number, type: TileType) => {
@@ -445,6 +459,12 @@ export default function App() {
 
   const applyTerraforming = useCallback(
     (cx: number, cy: number, tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN') => {
+      const rx = Math.floor(cx / 20);
+      const ry = Math.floor(cy / 20);
+      if (!gameState.unlockedRegions?.includes(`${rx},${ry}`)) {
+        addSystemNotification('utilities', 'Action Blocked', 'You cannot terraform outside your city limits.');
+        return;
+      }
       const tiles: [number, number][] = [];
       const radius = brushSize - 1;
       for (let dy = -radius; dy <= radius; dy++) {
@@ -473,7 +493,7 @@ export default function App() {
         },
       });
     },
-    [brushSize, gameState.money, gameState.grid, addSystemNotification, dispatchCommand]
+    [brushSize, gameState.money, gameState.grid, gameState.unlockedRegions, addSystemNotification, dispatchCommand]
   );
 
   const handleUnlockRegion = useCallback(
@@ -739,6 +759,7 @@ export default function App() {
         >
           <City3DCanvas
             grid={gameState.grid}
+            buildings={gameState.buildings}
             revisions={revisions}
             dirtyTerrainChunks={dirtyTerrainChunks}
             dirtyRoadChunks={dirtyRoadChunks}
@@ -847,7 +868,7 @@ export default function App() {
         onUnlockTech={(id, cost) => {
           dispatchCommand({
             type: 'UNLOCK_TECH',
-            payload: { techId: id, cost },
+            payload: { techId: id },
           });
         }}
       />
@@ -871,12 +892,8 @@ export default function App() {
         isOpen={showMissions}
         onClose={() => setShowMissions(false)}
         gameState={gameState}
-        onClaimReward={(id, reward) => {
-          setGameState((prev) => ({
-            ...prev,
-            money: prev.money + reward,
-            completedMissions: [...(prev.completedMissions || []), id],
-          }));
+        onClaimReward={(id) => {
+          dispatchCommand({ type: 'CLAIM_REWARD', payload: { missionId: id } });
         }}
       />
 
