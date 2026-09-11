@@ -140,9 +140,9 @@ export function ChunkRoadRenderer({
             <mesh geometry={chunk.batch.bridgeGeo} material={bridgeMat} receiveShadow castShadow />
           )}
           {showRoadSegments && chunk.batch.debugGeo.attributes.position && chunk.batch.debugGeo.attributes.position.count > 0 && (
-            <mesh geometry={chunk.batch.debugGeo}>
-              <meshBasicMaterial color="#38bdf8" wireframe />
-            </mesh>
+            <lineSegments geometry={chunk.batch.debugGeo}>
+              <lineBasicMaterial vertexColors toneMapped={false} />
+            </lineSegments>
           )}
         </group>
       ))}

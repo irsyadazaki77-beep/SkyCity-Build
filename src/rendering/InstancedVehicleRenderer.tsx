@@ -1,8 +1,9 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { SimulatedVehicle } from '../types';
+import { SimulatedVehicle, TileData } from '../types';
 import { gridToWorld } from '../components/world/types3D';
+import { LANE_OFFSET, getRoadSurfaceY } from '../core/world/GridRoadNetwork';
 import {
   createSedanGeometry,
   createSUVGeometry,
@@ -16,6 +17,7 @@ interface InstancedVehicleRendererProps {
   vehicles: SimulatedVehicle[];
   gridWidth: number;
   gridHeight: number;
+  grid?: TileData[][];
 }
 
 const dummyMatrix = new THREE.Matrix4();
@@ -36,6 +38,7 @@ export function InstancedVehicleRenderer({
   vehicles,
   gridWidth,
   gridHeight,
+  grid,
 }: InstancedVehicleRendererProps) {
   // Dedicated instanced mesh references per vehicle archetype
   const sedanMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -92,7 +95,8 @@ export function InstancedVehicleRenderer({
 
   useFrame((_, delta) => {
     const vStates = visualStateRef.current;
-    const laneOffsetDist = 0.16; // Right-hand traffic lane offset (half of 0.37 lane width)
+    // Dynamically computed lane offset matching roadWidth / 4 = 0.18
+    const laneOffsetDist = LANE_OFFSET;
 
     const updateMeshArchetype = (
       mesh: THREE.InstancedMesh | null,
@@ -145,8 +149,18 @@ export function InstancedVehicleRenderer({
 
         // Interpolated centerline position + right lane offset
         const curX = w1x + (w2x - w1x) * vState.progress + dummyRight.x * laneOffsetDist;
-        const curY = p1[1] + (p2[1] - p1[1]) * vState.progress + 0.02;
         const curZ = w1z + (w2z - w1z) * vState.progress + dummyRight.z * laneOffsetDist;
+
+        // Elevation strictly follows road/bridge surface (never dips onto water surface)
+        let y1 = p1[1] + 0.02;
+        let y2 = p2[1] + 0.02;
+        if (grid) {
+          // getRoadSurfaceY returns (elev + ROAD_ASPHALT_Y_OFFSET)
+          // Adding 0.015 ensures wheels sit right above the marking layer, eliminating z-fighting
+          y1 = getRoadSurfaceY(grid, p1[0], p1[2]) + 0.015;
+          y2 = getRoadSurfaceY(grid, p2[0], p2[2]) + 0.015;
+        }
+        const curY = y1 + (y2 - y1) * vState.progress;
 
         dummyPos.set(curX, curY, curZ);
 

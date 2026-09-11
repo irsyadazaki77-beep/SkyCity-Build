@@ -161,6 +161,7 @@ export default function App() {
   const [debugWaterRegions, setDebugWaterRegions] = useState<boolean>(false);
   const [debugRoadWaterIntersections, setDebugRoadWaterIntersections] = useState<boolean>(false);
   const [debugInvalidVegetation, setDebugInvalidVegetation] = useState<boolean>(false);
+  const [debugPostProcessing, setDebugPostProcessing] = useState<boolean>(true);
 
   const prevMilestoneRef = useRef<number>(gameState.milestoneLevel ?? 0);
 
@@ -797,6 +798,7 @@ export default function App() {
             }
             activeVehicles={activeVehicles}
             activePedestrians={activePedestrians}
+            enablePostProcessing={debugPostProcessing}
           />
         </ErrorBoundary>
 
@@ -846,6 +848,8 @@ export default function App() {
           onToggleRoadWaterIntersections={setDebugRoadWaterIntersections}
           showInvalidVegetation={debugInvalidVegetation}
           onToggleInvalidVegetation={setDebugInvalidVegetation}
+          enablePostProcessing={debugPostProcessing}
+          onTogglePostProcessing={setDebugPostProcessing}
         />
       </main>
 

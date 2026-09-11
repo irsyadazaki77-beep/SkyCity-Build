@@ -59,6 +59,7 @@ export interface City3DCanvasProps {
   dragPreviewColor?: string;
   activeVehicles?: SimulatedVehicle[];
   activePedestrians?: SimulatedPedestrian[];
+  enablePostProcessing?: boolean;
 }
 
 const WebGLProfiler = () => {
@@ -111,6 +112,7 @@ function City3DCanvasBase({
   dragPreviewColor = 'green',
   activeVehicles = [],
   activePedestrians = [],
+  enablePostProcessing = true,
 }: City3DCanvasProps) {
   const gridWidth = grid[0]?.length || 60;
   const gridHeight = grid.length || 60;
@@ -127,7 +129,7 @@ function City3DCanvasBase({
   const enableShadows = graphicsQuality !== 'low';
 
   return (
-    <div className="w-full h-full relative overflow-hidden bg-[#0a0f1d]">
+    <div className="w-full h-full relative overflow-hidden bg-[#e2e8f0]">
       <Canvas
         shadows={enableShadows ? 'soft' : false}
         dpr={dpr}
@@ -138,7 +140,7 @@ function City3DCanvasBase({
           powerPreference: 'high-performance',
           preserveDrawingBuffer: false,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.15,
+          toneMappingExposure: 1.0,
         }}
         onCreated={({ gl }) => {
           if (enableShadows) {
@@ -213,6 +215,7 @@ function City3DCanvasBase({
           vehicles={activeVehicles}
           gridWidth={gridWidth}
           gridHeight={gridHeight}
+          grid={grid}
         />
 
         <InstancedPedestrianRenderer
@@ -221,27 +224,26 @@ function City3DCanvasBase({
           gridHeight={gridHeight}
         />
 
-        {/* Post-processing */}
-        {graphicsQuality !== 'low' && (
+        {/* Crisp daylight post-processing with raw diagnostic toggle */}
+        {graphicsQuality !== 'low' && enablePostProcessing && (
           <EffectComposer multisampling={0}>
             <Bloom 
-              intensity={0.3} 
-              luminanceThreshold={0.9} 
-              luminanceSmoothing={0.1} 
+              intensity={0.06} 
+              luminanceThreshold={0.98} 
+              luminanceSmoothing={0.02} 
             />
-            <HueSaturation saturation={0.08} />
-            <BrightnessContrast brightness={0.0} contrast={0.08} />
-            <Vignette eskil={false} offset={0.1} darkness={0.4} />
           </EffectComposer>
         )}
       </Canvas>
     </div>
   );
+
 }
 
 // Precision memo equality: completely bypasses 3D Canvas re-renders unless visual 3D revisions actually change!
 export const City3DCanvas = React.memo(City3DCanvasBase, (prev, next) => {
   if (
+    prev.enablePostProcessing !== next.enablePostProcessing ||
     prev.revisions.terrainRevision !== next.revisions.terrainRevision ||
     prev.revisions.roadRevision !== next.revisions.roadRevision ||
     prev.revisions.buildingRevision !== next.revisions.buildingRevision ||

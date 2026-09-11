@@ -35,6 +35,8 @@ interface DeveloperDebugHUDProps {
   onToggleRoadWaterIntersections?: (val: boolean) => void;
   showInvalidVegetation?: boolean;
   onToggleInvalidVegetation?: (val: boolean) => void;
+  enablePostProcessing?: boolean;
+  onTogglePostProcessing?: (val: boolean) => void;
 }
 
 export function DeveloperDebugHUD({
@@ -66,6 +68,8 @@ export function DeveloperDebugHUD({
   onToggleRoadWaterIntersections,
   showInvalidVegetation = false,
   onToggleInvalidVegetation,
+  enablePostProcessing = true,
+  onTogglePostProcessing,
 }: DeveloperDebugHUDProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentFps, setCurrentFps] = useState(60);
@@ -340,7 +344,7 @@ export function DeveloperDebugHUD({
                     : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <span>Road Splines</span>
+                <span>Road Geometry</span>
                 <span className="font-bold">{showRoadSegments ? 'ON' : 'OFF'}</span>
               </button>
             )}
@@ -412,6 +416,20 @@ export function DeveloperDebugHUD({
               >
                 <span>Veg Mask Check</span>
                 <span className="font-bold">{showInvalidVegetation ? 'ON' : 'OFF'}</span>
+              </button>
+            )}
+
+            {onTogglePostProcessing && (
+              <button
+                onClick={() => onTogglePostProcessing(!enablePostProcessing)}
+                className={`px-2 py-1 rounded text-[10px] text-center border flex flex-col items-center justify-center transition-colors ${
+                  enablePostProcessing
+                    ? 'bg-emerald-900/60 border-emerald-500/80 text-emerald-300'
+                    : 'bg-amber-900/60 border-amber-500/80 text-amber-300'
+                }`}
+              >
+                <span>Post-Processing</span>
+                <span className="font-bold">{enablePostProcessing ? 'ON (Processed)' : 'OFF (Raw Light)'}</span>
               </button>
             )}
           </div>

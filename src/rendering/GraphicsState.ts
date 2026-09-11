@@ -2,17 +2,17 @@ import * as THREE from 'three';
 
 /**
  * Shared Rendering State for performance-critical shader uniforms.
- * This avoids React setState() overhead for variables that change every frame
- * like sun position, time of day, and night factor.
+ * Provides a clean, modern daylight baseline with consistent lighting,
+ * neutral fog, and stable exposure across all scene materials.
  */
 export const GraphicsState = {
   uniforms: {
     uTime: { value: 0 },
-    uNightFactor: { value: 0 },
-    uSunDirection: { value: new THREE.Vector3(0, 1, 0) },
-    uSunColor: { value: new THREE.Color(1, 1, 1) },
-    uAmbientColor: { value: new THREE.Color(0.65, 0.75, 0.85) },
-    uFogColor: { value: new THREE.Color(0.58, 0.64, 0.72) },
+    uNightFactor: { value: 0.0 },
+    uSunDirection: { value: new THREE.Vector3(45, 75, 35).normalize() },
+    uSunColor: { value: new THREE.Color(1.0, 0.985, 0.96) },
+    uAmbientColor: { value: new THREE.Color(0.92, 0.94, 0.97) },
+    uFogColor: { value: new THREE.Color(0.88, 0.91, 0.94) },
     uExposure: { value: 1.0 },
     uWaterTime: { value: 0 },
   },
@@ -24,3 +24,4 @@ export const GraphicsState = {
     postProcessing: true,
   }
 };
+

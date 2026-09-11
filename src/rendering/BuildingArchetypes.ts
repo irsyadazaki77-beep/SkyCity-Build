@@ -26,9 +26,9 @@ export function getArchitectureColors(arch: BuildingArchitecture): { base: strin
     case 'COM_MALL':
       return { base: '#e0f2fe', accent: '#0284c7', patternType: 1 };
     case 'COM_TOWER':
-      return { base: '#38bdf8', accent: '#0f172a', patternType: 1 };
+      return { base: '#cbd5e1', accent: '#0369a1', patternType: 1 };
     case 'COM_PREMIUM_SKYSCRAPER':
-      return { base: '#0284c7', accent: '#38bdf8', patternType: 1 };
+      return { base: '#94a3b8', accent: '#0284c7', patternType: 1 };
 
     // Industrial Tier 1-5 (Heavy manufacturing to Clean Tech)
     case 'IND_WORKSHOP':
@@ -40,13 +40,13 @@ export function getArchitectureColors(arch: BuildingArchitecture): { base: strin
     case 'IND_LOGISTICS':
       return { base: '#cbd5e1', accent: '#1d4ed8', patternType: 2 };
     case 'IND_HIGHTECH':
-      return { base: '#f1f5f9', accent: '#06b6d4', patternType: 2 };
+      return { base: '#f1f5f9', accent: '#0891b2', patternType: 2 };
 
     // Civic Services & Public Infrastructure
     case 'SRV_POWER':
       return { base: '#64748b', accent: '#f59e0b', patternType: 2 };
     case 'SRV_WATER':
-      return { base: '#0284c7', accent: '#f8fafc', patternType: 2 };
+      return { base: '#475569', accent: '#0284c7', patternType: 2 };
     case 'SRV_FIRE':
       return { base: '#ffffff', accent: '#dc2626', patternType: 2 };
     case 'SRV_POLICE':
