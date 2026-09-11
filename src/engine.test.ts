@@ -355,4 +355,164 @@ describe('Skyline Simulator Engine 5.0 Subsystems', () => {
     // Building should now be Level 2
     expect(grid[0][1].level).toBe(2);
   });
+
+  it('should route freight from Industrial to Commercial and calculate goods supply and traffic loads', () => {
+    const grid = createEmptyGrid();
+    // Build a connected road corridor from (0,0) to (5,0)
+    for (let x = 0; x <= 5; x++) {
+      grid[0][x].type = TileType.ROAD;
+      grid[0][x].powered = true;
+      grid[0][x].watered = true;
+    }
+
+    // Place Residential at (1,0), Commercial at (1,4), Industrial at (1,5)
+    grid[1][0].type = TileType.RESIDENTIAL;
+    grid[1][0].population = 40;
+    grid[1][0].powered = true;
+    grid[1][0].watered = true;
+
+    grid[1][4].type = TileType.COMMERCIAL;
+    grid[1][4].jobs = 8;
+    grid[1][4].powered = true;
+    grid[1][4].watered = true;
+
+    grid[1][5].type = TileType.INDUSTRIAL;
+    grid[1][5].jobs = 12;
+    grid[1][5].powered = true;
+    grid[1][5].watered = true;
+
+    const trafficSys = new TrafficSubsystem();
+    const result = trafficSys.simulate(grid, 10, []);
+
+    // Road tiles along corridor should carry traffic
+    expect(result.averageTraffic).toBeGreaterThan(0);
+    expect(result.activeVehicles.length).toBeGreaterThan(0);
+    expect(result.logisticsEfficiency).toBeGreaterThan(50);
+    expect(result.goodsSupplyIndex).toBeGreaterThan(50);
+
+    // Commercial tile at (1,4) should receive goods from Industrial at (1,5)
+    expect(grid[1][4].goodsStock).toBeGreaterThanOrEqual(50);
+    expect(grid[1][5].logisticsSatisfaction).toBeGreaterThanOrEqual(50);
+    expect(grid[1][4].productivity).toBeGreaterThan(0);
+  });
+
+  it('should enforce capacity limits on city services and prioritize closer buildings along road networks', () => {
+    const grid = createEmptyGrid();
+    // Build a straight road line from (0,0) to (0,20)
+    for (let y = 0; y <= 20; y++) {
+      grid[y][0].type = TileType.ROAD;
+      grid[y][0].powered = true;
+      grid[y][0].watered = true;
+    }
+
+    // Place a Clinic at (0,1) with capacity = 140
+    grid[0][1].type = TileType.CLINIC;
+    grid[0][1].powered = true;
+    grid[0][1].watered = true;
+
+    // Place a dense residential building near the clinic at (2,1) with 100 population
+    grid[2][1].type = TileType.RESIDENTIAL;
+    grid[2][1].population = 100;
+    grid[2][1].powered = true;
+    grid[2][1].watered = true;
+
+    // Place another dense residential building further down at (10,1) with 100 population (total 200 > 140 cap)
+    grid[10][1].type = TileType.RESIDENTIAL;
+    grid[10][1].population = 100;
+    grid[10][1].powered = true;
+    grid[10][1].watered = true;
+
+    const trafficSys = new TrafficSubsystem();
+    trafficSys.roadNetwork.rebuildFull(grid, []);
+    const roadGraph = trafficSys.roadNetwork.getGraph();
+
+    const servicesResult = simulateCityServices(grid, roadGraph, 200, 130, 50, 2, 9, []);
+
+    // The closer building at (2,1) should get full healthcare coverage
+    expect(grid[2][1].healthCovered).toBe(true);
+    // The distant building at (10,1) has exhausted remaining capacity and gets partial/no coverage
+    expect(grid[10][1].healthCovered).toBe(false);
+    // Overall city coverage reflects the capacity constraint
+    expect(servicesResult.healthcareCoverage).toBeLessThan(100);
+    expect(servicesResult.healthcareCoverage).toBeGreaterThanOrEqual(50);
+  });
+
+  it('should trigger crime, sickness, and low land value when services are absent, and boost health, education, and land value when present', () => {
+    const grid = createEmptyGrid();
+    for (let y = 0; y <= 10; y++) {
+      grid[y][0].type = TileType.ROAD;
+      grid[y][0].powered = true;
+      grid[y][0].watered = true;
+    }
+
+    // Unserviced residential at (2,1)
+    grid[2][1].type = TileType.RESIDENTIAL;
+    grid[2][1].population = 20;
+    grid[2][1].powered = true;
+    grid[2][1].watered = true;
+
+    const trafficSys = new TrafficSubsystem();
+    trafficSys.roadNetwork.rebuildFull(grid, []);
+    let roadGraph = trafficSys.roadNetwork.getGraph();
+
+    // 1. Without services
+    simulateCityServices(grid, roadGraph, 20, 13, 50, 2, 9, []);
+    simulateCityDepthAndEnvironment(grid, roadGraph, []);
+
+    expect(grid[2][1].policeCovered).toBe(false);
+    expect(grid[2][1].healthCovered).toBe(false);
+    expect(grid[2][1].crime).toBeGreaterThan(40); // High crime without police
+    expect(grid[2][1].health).toBeLessThan(50);   // Sickness without clinic & waste
+
+    // 2. Now add Police Station, Clinic, School, and Waste Management
+    grid[0][1].type = TileType.POLICE_STATION;
+    grid[0][1].powered = true;
+    grid[0][1].watered = true;
+
+    grid[1][1].type = TileType.CLINIC;
+    grid[1][1].powered = true;
+    grid[1][1].watered = true;
+
+    grid[3][1].type = TileType.SCHOOL;
+    grid[3][1].powered = true;
+    grid[3][1].watered = true;
+
+    grid[4][1].type = TileType.WASTE_MANAGEMENT;
+    grid[4][1].powered = true;
+    grid[4][1].watered = true;
+
+    trafficSys.roadNetwork.rebuildFull(grid, []);
+    roadGraph = trafficSys.roadNetwork.getGraph();
+
+    simulateCityServices(grid, roadGraph, 20, 13, 50, 2, 9, []);
+    simulateCityDepthAndEnvironment(grid, roadGraph, []);
+
+    expect(grid[2][1].policeCovered).toBe(true);
+    expect(grid[2][1].healthCovered).toBe(true);
+    expect(grid[2][1].schoolCovered).toBe(true);
+    expect(grid[2][1].wasteCovered).toBe(true);
+    expect(grid[2][1].crime).toBeLessThanOrEqual(15); // Suppressed by police
+    expect(grid[2][1].health).toBeGreaterThanOrEqual(80); // Health boosted by clinic & waste
+    expect(grid[2][1].landValue).toBeGreaterThanOrEqual(60); // High land value from all services
+  });
+
+  it('should penalize municipal budget with maintenance costs when spamming unutilized service facilities', () => {
+    const grid = createEmptyGrid();
+    grid[0][0].type = TileType.ROAD;
+
+    // Build 5 Fire Stations and 5 Police Stations without any population
+    for (let x = 1; x <= 5; x++) {
+      grid[1][x].type = TileType.FIRE_STATION;
+      grid[2][x].type = TileType.POLICE_STATION;
+    }
+
+    const economy = calculateEconomy(grid, 0, 0, 0, 0, [], 9, 9, 9, [], []);
+
+    // Service maintenance should be significant (5 * 35 + 5 * 30 = $325/tick)
+    expect(economy.serviceMaint).toBeGreaterThanOrEqual(300);
+    // Since there are 0 residents/businesses, income is $0 and netIncome is negative (deficit)
+    expect(economy.income).toBe(0);
+    expect(economy.netIncome).toBeLessThan(-300);
+  });
 });
+

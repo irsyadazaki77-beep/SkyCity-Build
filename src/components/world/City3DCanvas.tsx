@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import * as THREE from 'three';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { SoftShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, BrightnessContrast, HueSaturation } from '@react-three/postprocessing';
 import {
   TileData,
@@ -130,7 +129,7 @@ function City3DCanvasBase({
   return (
     <div className="w-full h-full relative overflow-hidden bg-[#0a0f1d]">
       <Canvas
-        shadows={enableShadows}
+        shadows={enableShadows ? 'soft' : false}
         dpr={dpr}
         camera={{ position: [0, 22, 22], fov: 45 }}
         gl={{
@@ -140,6 +139,12 @@ function City3DCanvasBase({
           preserveDrawingBuffer: false,
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.15,
+        }}
+        onCreated={({ gl }) => {
+          if (enableShadows) {
+            gl.shadowMap.enabled = true;
+            gl.shadowMap.type = THREE.PCFSoftShadowMap;
+          }
         }}
       >
         <WebGLProfiler />

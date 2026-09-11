@@ -5,7 +5,7 @@ import { TileData } from '../types';
 import { GridRoadNetwork, RoadGeometryBatch } from '../core/world/GridRoadNetwork';
 import { CHUNK_SIZE } from '../core/simulation/ChunkManager';
 import { gridToWorld, TILE_SIZE } from '../components/world/types3D';
-import { GraphicsState } from './GraphicsState';
+import { RoadAsphaltShaderMaterial, RoadMarkingShaderMaterial, BridgeShaderMaterial } from './CustomMaterials';
 
 interface ChunkRoadRendererProps {
   grid: TileData[][];
@@ -21,49 +21,6 @@ interface RoadChunkEntry {
   box: THREE.Box3;
   batch: RoadGeometryBatch;
 }
-
-const AsphaltMaterial = () => {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      uSunDirection: GraphicsState.uniforms.uSunDirection,
-      uNightFactor: GraphicsState.uniforms.uNightFactor,
-    },
-    vertexShader: `
-      varying vec3 vNormal;
-      varying vec3 vWorldPosition;
-      void main() {
-        mat3 m = mat3(modelMatrix);
-        vNormal = normalize(m * normal);
-        vec4 worldPos = modelMatrix * vec4(position, 1.0);
-        vWorldPosition = worldPos.xyz;
-        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mvPosition;
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 uSunDirection;
-      uniform float uNightFactor;
-      varying vec3 vNormal;
-      varying vec3 vWorldPosition;
-
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-
-      void main() {
-        float grain = hash(vWorldPosition.xz * 100.0) * 0.1;
-        float macro = hash(vWorldPosition.xz * 5.0) * 0.05;
-        vec3 color = vec3(0.12, 0.14, 0.18) + grain + macro;
-        
-        vec3 normal = normalize(vNormal);
-        float dotL = max(0.2, dot(normal, uSunDirection));
-        
-        vec3 diffuse = color * dotL * (1.0 - uNightFactor * 0.8);
-        diffuse += vec3(0.01, 0.02, 0.08) * uNightFactor;
-
-        gl_FragColor = vec4(diffuse, 1.0);
-      }
-    `
-  });
-};
 
 export function ChunkRoadRenderer({
   grid,
@@ -154,7 +111,9 @@ export function ChunkRoadRenderer({
     });
   });
 
-  const asphaltMat = useMemo(() => AsphaltMaterial(), []);
+  const asphaltMat = useMemo(() => RoadAsphaltShaderMaterial(), []);
+  const markingsMat = useMemo(() => RoadMarkingShaderMaterial(), []);
+  const bridgeMat = useMemo(() => BridgeShaderMaterial(showRoadWaterIntersections), [showRoadWaterIntersections]);
 
   return (
     <group name="ChunkRoads">
@@ -170,25 +129,15 @@ export function ChunkRoadRenderer({
             <mesh geometry={chunk.batch.asphaltGeo} material={asphaltMat} receiveShadow castShadow />
           )}
           {chunk.batch.markingsGeo.attributes.position && chunk.batch.markingsGeo.attributes.position.count > 0 && (
-            <mesh geometry={chunk.batch.markingsGeo}>
-              <meshBasicMaterial color="#fbbf24" />
-            </mesh>
+            <mesh geometry={chunk.batch.markingsGeo} material={markingsMat} />
           )}
           {chunk.batch.curbGeo.attributes.position && chunk.batch.curbGeo.attributes.position.count > 0 && (
             <mesh geometry={chunk.batch.curbGeo} receiveShadow castShadow>
-              <meshStandardMaterial color="#94a3b8" roughness={0.7} metalness={0.1} />
+              <meshStandardMaterial color="#94a3b8" roughness={0.75} metalness={0.08} />
             </mesh>
           )}
           {chunk.batch.bridgeGeo.attributes.position && chunk.batch.bridgeGeo.attributes.position.count > 0 && (
-            <mesh geometry={chunk.batch.bridgeGeo} receiveShadow castShadow>
-              <meshStandardMaterial
-                color={showRoadWaterIntersections ? '#f97316' : '#64748b'}
-                emissive={showRoadWaterIntersections ? '#f97316' : '#000000'}
-                emissiveIntensity={showRoadWaterIntersections ? 0.6 : 0}
-                roughness={0.65}
-                metalness={0.3}
-              />
-            </mesh>
+            <mesh geometry={chunk.batch.bridgeGeo} material={bridgeMat} receiveShadow castShadow />
           )}
           {showRoadSegments && chunk.batch.debugGeo.attributes.position && chunk.batch.debugGeo.attributes.position.count > 0 && (
             <mesh geometry={chunk.batch.debugGeo}>
@@ -200,3 +149,4 @@ export function ChunkRoadRenderer({
     </group>
   );
 }
+

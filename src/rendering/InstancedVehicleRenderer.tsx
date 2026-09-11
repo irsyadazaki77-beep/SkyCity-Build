@@ -2,8 +2,15 @@ import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SimulatedVehicle } from '../types';
-import { GraphicsState } from "./GraphicsState";
 import { gridToWorld } from '../components/world/types3D';
+import {
+  createSedanGeometry,
+  createSUVGeometry,
+  createBusGeometry,
+  createTruckGeometry,
+  createEmergencyGeometry,
+} from './VehicleArchetypes';
+import { VehicleShaderMaterial } from './CustomMaterials';
 
 interface InstancedVehicleRendererProps {
   vehicles: SimulatedVehicle[];
@@ -15,10 +22,14 @@ const dummyMatrix = new THREE.Matrix4();
 const dummyColor = new THREE.Color();
 const dummyPos = new THREE.Vector3();
 const dummyDir = new THREE.Vector3();
+const dummyRight = new THREE.Vector3();
+const dummyRot = new THREE.Quaternion();
+const dummyScale = new THREE.Vector3(1, 1, 1);
 
 interface VehicleVisualState {
   progress: number;
   waypointIndex: number;
+  currentAngle: number;
 }
 
 export function InstancedVehicleRenderer({
@@ -26,78 +37,149 @@ export function InstancedVehicleRenderer({
   gridWidth,
   gridHeight,
 }: InstancedVehicleRendererProps) {
-  const meshRef = useRef<THREE.InstancedMesh>(null);
+  // Dedicated instanced mesh references per vehicle archetype
+  const sedanMeshRef = useRef<THREE.InstancedMesh>(null);
+  const suvMeshRef = useRef<THREE.InstancedMesh>(null);
+  const busMeshRef = useRef<THREE.InstancedMesh>(null);
+  const truckMeshRef = useRef<THREE.InstancedMesh>(null);
+  const emergencyMeshRef = useRef<THREE.InstancedMesh>(null);
+
   const visualStateRef = useRef<Map<number, VehicleVisualState>>(new Map());
 
-  // Proportional stylized vehicle geometry (0.18 wide x 0.14 high x 0.38 long)
-  const geo = useMemo(() => {
-    const box = new THREE.BoxGeometry(0.18, 0.14, 0.38);
-    box.translate(0, 0.07, 0);
-    return box;
-  }, []);
+  // Procedural archetype geometries with detailed sub-parts & vertex colors
+  const sedanGeo = useMemo(() => createSedanGeometry(), []);
+  const suvGeo = useMemo(() => createSUVGeometry(), []);
+  const busGeo = useMemo(() => createBusGeometry(), []);
+  const truckGeo = useMemo(() => createTruckGeometry(), []);
+  const emergencyGeo = useMemo(() => createEmergencyGeometry('police'), []);
 
-  const mat = useMemo(() => new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.55 }), []);
+  // Shared high-performance vehicle shader material
+  const vehicleMat = useMemo(() => VehicleShaderMaterial(), []);
 
-  useFrame((_, delta) => {
-    if (!meshRef.current || vehicles.length === 0) return;
-    const mesh = meshRef.current;
-    const count = Math.min(vehicles.length, 100);
-    const vStates = visualStateRef.current;
+  // Classify active vehicles into archetypes
+  const { sedanVehicles, suvVehicles, busVehicles, truckVehicles, emergencyVehicles } = useMemo(() => {
+    const sedans: SimulatedVehicle[] = [];
+    const suvs: SimulatedVehicle[] = [];
+    const buses: SimulatedVehicle[] = [];
+    const trucks: SimulatedVehicle[] = [];
+    const emergencies: SimulatedVehicle[] = [];
 
-    for (let i = 0; i < count; i++) {
-      const v = vehicles[i];
-      if (!v.path || v.path.length < 2) continue;
-
-      let vState = vStates.get(v.id);
-      if (!vState) {
-        vState = { progress: v.progress || 0, waypointIndex: v.currentWaypointIndex || 0 };
-        vStates.set(v.id, vState);
+    vehicles.forEach((v) => {
+      if (v.type === 'bus') {
+        buses.push(v);
+      } else if (v.type === 'truck') {
+        trucks.push(v);
+      } else if (v.type === 'police' || v.type === 'fire' || v.type === 'ambulance') {
+        emergencies.push(v);
       } else {
-        // Force-align rendering state if simulation moves waypoint or drifts significantly
-        if (vState.waypointIndex !== v.currentWaypointIndex) {
-          vState.waypointIndex = v.currentWaypointIndex;
-          vState.progress = v.progress;
-        } else if (Math.abs(vState.progress - v.progress) > 0.45) {
-          vState.progress = THREE.MathUtils.lerp(vState.progress, v.progress, 0.25);
+        // Natural distribution between modern sedans and SUVs
+        if (v.id % 3 === 0) {
+          suvs.push(v);
+        } else {
+          sedans.push(v);
         }
       }
+    });
 
-      vState.progress += delta * (v.speed || 1.2);
-      if (vState.progress >= 1.0) {
-        vState.progress = 0;
-        vState.waypointIndex = (vState.waypointIndex + 1) % (v.path.length - 1);
+    return {
+      sedanVehicles: sedans,
+      suvVehicles: suvs,
+      busVehicles: buses,
+      truckVehicles: trucks,
+      emergencyVehicles: emergencies,
+    };
+  }, [vehicles]);
+
+  useFrame((_, delta) => {
+    const vStates = visualStateRef.current;
+    const laneOffsetDist = 0.16; // Right-hand traffic lane offset (half of 0.37 lane width)
+
+    const updateMeshArchetype = (
+      mesh: THREE.InstancedMesh | null,
+      archetypeList: SimulatedVehicle[],
+      maxCount: number
+    ) => {
+      if (!mesh) return;
+      const count = Math.min(archetypeList.length, maxCount);
+      mesh.count = count;
+
+      for (let i = 0; i < count; i++) {
+        const v = archetypeList[i];
+        if (!v.path || v.path.length < 2) continue;
+
+        let vState = vStates.get(v.id);
+        if (!vState) {
+          vState = {
+            progress: v.progress || 0,
+            waypointIndex: v.currentWaypointIndex || 0,
+            currentAngle: 0,
+          };
+          vStates.set(v.id, vState);
+        } else {
+          // Force-align rendering state if simulation jumps waypoint or drifts significantly
+          if (vState.waypointIndex !== v.currentWaypointIndex) {
+            vState.waypointIndex = v.currentWaypointIndex;
+            vState.progress = v.progress;
+          } else if (Math.abs(vState.progress - v.progress) > 0.40) {
+            vState.progress = THREE.MathUtils.lerp(vState.progress, v.progress, 0.20);
+          }
+        }
+
+        vState.progress += delta * (v.speed || 1.1);
+        if (vState.progress >= 1.0) {
+          vState.progress = 0;
+          vState.waypointIndex = (vState.waypointIndex + 1) % (v.path.length - 1);
+        }
+
+        const p1 = v.path[vState.waypointIndex];
+        const p2 = v.path[vState.waypointIndex + 1] || v.path[0];
+
+        const [w1x, , w1z] = gridToWorld(p1[0], p1[2], gridWidth, gridHeight);
+        const [w2x, , w2z] = gridToWorld(p2[0], p2[2], gridWidth, gridHeight);
+
+        // Direction of motion
+        dummyDir.set(w2x - w1x, 0, w2z - w1z).normalize();
+
+        // Perpendicular right lateral vector for proper right-lane traffic positioning
+        dummyRight.set(-dummyDir.z, 0, dummyDir.x);
+
+        // Interpolated centerline position + right lane offset
+        const curX = w1x + (w2x - w1x) * vState.progress + dummyRight.x * laneOffsetDist;
+        const curY = p1[1] + (p2[1] - p1[1]) * vState.progress + 0.02;
+        const curZ = w1z + (w2z - w1z) * vState.progress + dummyRight.z * laneOffsetDist;
+
+        dummyPos.set(curX, curY, curZ);
+
+        // Smooth rotation angle for cornering
+        const targetAngle = Math.atan2(dummyDir.x, dummyDir.z);
+        if (Math.abs(vState.currentAngle - targetAngle) > Math.PI) {
+          vState.currentAngle = targetAngle;
+        } else {
+          vState.currentAngle = THREE.MathUtils.lerp(vState.currentAngle, targetAngle, 0.25);
+        }
+
+        dummyRot.setFromAxisAngle(new THREE.Vector3(0, 1, 0), vState.currentAngle);
+        dummyMatrix.compose(dummyPos, dummyRot, dummyScale);
+
+        mesh.setMatrixAt(i, dummyMatrix);
+
+        // Set instance paint color
+        dummyColor.set(v.color || '#3b82f6');
+        mesh.setColorAt(i, dummyColor);
       }
 
-      const p1 = v.path[vState.waypointIndex];
-      const p2 = v.path[vState.waypointIndex + 1] || v.path[0];
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    };
 
-      const [w1x, , w1z] = gridToWorld(p1[0], p1[2], gridWidth, gridHeight);
-      const [w2x, , w2z] = gridToWorld(p2[0], p2[2], gridWidth, gridHeight);
+    updateMeshArchetype(sedanMeshRef.current, sedanVehicles, 60);
+    updateMeshArchetype(suvMeshRef.current, suvVehicles, 40);
+    updateMeshArchetype(busMeshRef.current, busVehicles, 25);
+    updateMeshArchetype(truckMeshRef.current, truckVehicles, 30);
+    updateMeshArchetype(emergencyMeshRef.current, emergencyVehicles, 15);
 
-      const curX = w1x + (w2x - w1x) * vState.progress;
-      const curY = p1[1] + (p2[1] - p1[1]) * vState.progress + 0.02;
-      const curZ = w1z + (w2z - w1z) * vState.progress;
-
-      dummyPos.set(curX, curY, curZ);
-      dummyDir.set(w2x - w1x, 0, w2z - w1z).normalize();
-
-      const angle = Math.atan2(dummyDir.x, dummyDir.z);
-
-      dummyMatrix.makeRotationY(angle);
-      dummyMatrix.setPosition(dummyPos);
-
-      mesh.setMatrixAt(i, dummyMatrix);
-
-      dummyColor.set(v.color || '#3b82f6');
-      const currentNightFactor = GraphicsState.uniforms.uNightFactor.value;
-      if (currentNightFactor > 0.3) {
-        dummyColor.lerp(new THREE.Color('#fef08a'), 0.35); // Headlight glow at night
-      }
-      mesh.setColorAt(i, dummyColor);
-    }
-
-    // Prune stale vehicle visual states to avoid memory leak
-    if (vStates.size > vehicles.length * 2) {
+    // Periodic memory cleanup of stale visual states
+    if (vStates.size > vehicles.length * 2 + 10) {
       const activeIds = new Set(vehicles.map((veh) => veh.id));
       for (const id of vStates.keys()) {
         if (!activeIds.has(id)) {
@@ -105,18 +187,52 @@ export function InstancedVehicleRenderer({
         }
       }
     }
-
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   });
 
   if (vehicles.length === 0) return null;
 
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[geo, mat, Math.max(1, Math.min(vehicles.length, 100))]}
-      castShadow
-    />
+    <group name="InstancedCityVehicles">
+      {sedanVehicles.length > 0 && (
+        <instancedMesh
+          ref={sedanMeshRef}
+          args={[sedanGeo, vehicleMat, 60]}
+          castShadow
+          receiveShadow
+        />
+      )}
+      {suvVehicles.length > 0 && (
+        <instancedMesh
+          ref={suvMeshRef}
+          args={[suvGeo, vehicleMat, 40]}
+          castShadow
+          receiveShadow
+        />
+      )}
+      {busVehicles.length > 0 && (
+        <instancedMesh
+          ref={busMeshRef}
+          args={[busGeo, vehicleMat, 25]}
+          castShadow
+          receiveShadow
+        />
+      )}
+      {truckVehicles.length > 0 && (
+        <instancedMesh
+          ref={truckMeshRef}
+          args={[truckGeo, vehicleMat, 30]}
+          castShadow
+          receiveShadow
+        />
+      )}
+      {emergencyVehicles.length > 0 && (
+        <instancedMesh
+          ref={emergencyMeshRef}
+          args={[emergencyGeo, vehicleMat, 15]}
+          castShadow
+          receiveShadow
+        />
+      )}
+    </group>
   );
 }

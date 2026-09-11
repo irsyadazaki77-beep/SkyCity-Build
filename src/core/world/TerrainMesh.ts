@@ -44,6 +44,10 @@ export class TerrainMeshGenerator {
     const fx = gx - Math.floor(gx);
     const fy = gy - Math.floor(gy);
 
+    // Quintic Hermite interpolant (C2 smoothstep) for organic, non-boxy curvature
+    const sfx = fx * fx * fx * (fx * (fx * 6.0 - 15.0) + 10.0);
+    const sfy = fy * fy * fy * (fy * (fy * 6.0 - 15.0) + 10.0);
+
     // 4-corner tile sampling
     const t00 = grid[minGy]?.[minGx];
     const t10 = grid[minGy]?.[maxGx];
@@ -55,37 +59,38 @@ export class TerrainMeshGenerator {
     const getF = (t?: TileData) => (t?.resource === 'forest' ? 1.0 : 0.0);
     const getO = (t?: TileData) => (t?.resource === 'ore' ? 1.0 : 0.0);
 
-    // Bilinear height
-    const h0 = (1 - fx) * getH(t00) + fx * getH(t10);
-    const h1 = (1 - fx) * getH(t01) + fx * getH(t11);
-    const rawHeight = (1 - fy) * h0 + fy * h1;
+    // Smooth quintic height interpolation
+    const h0 = (1 - sfx) * getH(t00) + sfx * getH(t10);
+    const h1 = (1 - sfx) * getH(t01) + sfx * getH(t11);
+    const rawHeight = (1 - sfy) * h0 + sfy * h1;
 
-    // Bilinear water factor
-    const w0 = (1 - fx) * getW(t00) + fx * getW(t10);
-    const w1 = (1 - fx) * getW(t01) + fx * getW(t11);
-    const waterWeight = (1 - fy) * w0 + fy * w1;
+    // Smooth quintic water factor
+    const w0 = (1 - sfx) * getW(t00) + sfx * getW(t10);
+    const w1 = (1 - sfx) * getW(t01) + sfx * getW(t11);
+    const waterWeight = (1 - sfy) * w0 + sfy * w1;
 
-    // Bilinear forest factor
-    const f0 = (1 - fx) * getF(t00) + fx * getF(t10);
-    const f1 = (1 - fx) * getF(t01) + fx * getF(t11);
-    const isForest = (1 - fy) * f0 + fy * f1;
+    // Smooth quintic forest factor
+    const f0 = (1 - sfx) * getF(t00) + sfx * getF(t10);
+    const f1 = (1 - sfx) * getF(t01) + sfx * getF(t11);
+    const isForest = (1 - sfy) * f0 + sfy * f1;
 
-    // Bilinear ore factor
-    const o0 = (1 - fx) * getO(t00) + fx * getO(t10);
-    const o1 = (1 - fx) * getO(t01) + fx * getO(t11);
-    const isOre = (1 - fy) * o0 + fy * o1;
+    // Smooth quintic ore factor
+    const o0 = (1 - sfx) * getO(t00) + sfx * getO(t10);
+    const o1 = (1 - sfx) * getO(t01) + sfx * getO(t11);
+    const isOre = (1 - sfy) * o0 + sfy * o1;
 
-    // Smooth shoreline transition & clear water separation:
-    // Dry land sits at (rawHeight + 0.04) strictly ABOVE WATER_LEVEL (0.0).
-    // Riverbed dips down smoothly to riverbedDepth (-0.38) strictly BELOW WATER_LEVEL (0.0).
+    // Smooth organic shoreline slope transition:
+    // Dry land sits gracefully at (rawHeight + 0.04) strictly ABOVE WATER_LEVEL (0.0).
+    // Riverbed dips down gently to riverbedDepth (-0.36) strictly BELOW WATER_LEVEL (0.0).
     const landHeight = rawHeight + 0.04;
     let finalHeight = landHeight;
 
-    if (waterWeight > 0.0) {
-      const riverbedDepth = -0.38;
-      // Smooth Hermite curve for organic riverbank slope
-      const smoothW = waterWeight * waterWeight * (3 - 2 * waterWeight);
-      finalHeight = (1 - smoothW) * landHeight + smoothW * riverbedDepth;
+    if (waterWeight > 0.0001) {
+      const riverbedDepth = -0.36;
+      // Smooth Hermite curve for natural riverbank contour
+      const w = Math.min(1.0, Math.max(0.0, waterWeight));
+      const smoothW = w * w * (3.0 - 2.0 * w);
+      finalHeight = (1.0 - smoothW) * landHeight + smoothW * riverbedDepth;
     }
 
     return {
@@ -107,7 +112,7 @@ export class TerrainMeshGenerator {
     gridWidth: number,
     gridHeight: number
   ): THREE.Vector3 {
-    const eps = 0.25;
+    const eps = 0.20;
     const hL = this.sampleTerrain(grid, gx - eps, gy, gridWidth, gridHeight).height;
     const hR = this.sampleTerrain(grid, gx + eps, gy, gridWidth, gridHeight).height;
     const hU = this.sampleTerrain(grid, gx, gy - eps, gridWidth, gridHeight).height;
@@ -287,7 +292,7 @@ export class TerrainMeshGenerator {
     }
 
     // Completely dry chunk: return null (zero draw calls & zero water mesh overhead)
-    if (maxWaterWeight < 0.01) {
+    if (maxWaterWeight < 0.005) {
       return null;
     }
 

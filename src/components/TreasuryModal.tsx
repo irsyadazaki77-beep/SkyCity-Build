@@ -31,24 +31,36 @@ export function TreasuryModal({ isOpen, onClose, gameState, setTaxRates }: Treas
   let waterUpkeep = 0;
   let serviceUpkeep = 0;
 
+  const budgets = gameState.serviceBudgets || {
+    roads: 100,
+    power: 100,
+    water: 100,
+    police: 100,
+    fire: 100,
+    health: 100,
+    education: 100,
+    waste: 100,
+    parks: 100,
+  };
+
   grid.forEach((row) => {
     row.forEach((tile) => {
       const upkeep = MAINTENANCE_COSTS[tile.type] || 0;
-      if (tile.type === TileType.ROAD) roadUpkeep += upkeep;
-      else if (tile.type === TileType.POWER_PLANT) powerUpkeep += upkeep;
-      else if (tile.type === TileType.WATER_PUMP) waterUpkeep += upkeep;
-      else if (
-        tile.type === TileType.FIRE_STATION ||
-        tile.type === TileType.POLICE_STATION ||
-        tile.type === TileType.CLINIC ||
-        tile.type === TileType.SCHOOL ||
-        tile.type === TileType.WASTE_MANAGEMENT ||
-        tile.type === TileType.PARK
-      ) {
-        serviceUpkeep += upkeep;
-      }
+      if (tile.type === TileType.ROAD) roadUpkeep += Math.round(upkeep * (budgets.roads / 100));
+      else if (tile.type === TileType.POWER_PLANT) powerUpkeep += Math.round(upkeep * (budgets.power / 100));
+      else if (tile.type === TileType.WATER_PUMP) waterUpkeep += Math.round(upkeep * (budgets.water / 100));
+      else if (tile.type === TileType.FIRE_STATION) serviceUpkeep += Math.round(upkeep * (budgets.fire / 100));
+      else if (tile.type === TileType.POLICE_STATION) serviceUpkeep += Math.round(upkeep * (budgets.police / 100));
+      else if (tile.type === TileType.CLINIC) serviceUpkeep += Math.round(upkeep * (budgets.health / 100));
+      else if (tile.type === TileType.SCHOOL) serviceUpkeep += Math.round(upkeep * (budgets.education / 100));
+      else if (tile.type === TileType.WASTE_MANAGEMENT) serviceUpkeep += Math.round(upkeep * (budgets.waste / 100));
+      else if (tile.type === TileType.PARK) serviceUpkeep += Math.round(upkeep * (budgets.parks / 100));
     });
   });
+
+  if (gameState.dailyDebtService) {
+    serviceUpkeep += gameState.dailyDebtService;
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] px-[calc(env(safe-area-inset-left,0px)+0.75rem)] pr-[calc(env(safe-area-inset-right,0px)+0.75rem)] select-none animate-in fade-in duration-200">

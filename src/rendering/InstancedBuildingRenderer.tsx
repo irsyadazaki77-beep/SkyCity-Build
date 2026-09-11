@@ -7,6 +7,7 @@ import { gridToWorld, TILE_SIZE } from '../components/world/types3D';
 import { GraphicsState } from './GraphicsState';
 import { BuildingArchitecture, getArchitectureColors } from './BuildingArchetypes';
 import { BuildingShaderMaterial } from './CustomMaterials';
+import { createBuildingGeometries } from './BuildingGeometries';
 import { CHUNK_SIZE } from '../core/simulation/ChunkManager';
 
 import { BuildingEntity } from '../core/simulation/entities/BuildingEntity';
@@ -60,12 +61,7 @@ export function InstancedBuildingRenderer({
   const frustumRef = useRef(new THREE.Frustum());
   const projScreenMatrixRef = useRef(new THREE.Matrix4());
 
-  const baseGeometries = useMemo(() => {
-    return {
-      box: new THREE.BoxGeometry(TILE_SIZE * 0.85, TILE_SIZE, TILE_SIZE * 0.85),
-      cylinder: new THREE.CylinderGeometry(TILE_SIZE * 0.4, TILE_SIZE * 0.45, TILE_SIZE, 8),
-    };
-  }, []);
+  const buildingGeometries = useMemo(() => createBuildingGeometries(), []);
 
   const materials = useMemo(() => {
     const mats = new Map<BuildingArchitecture, THREE.ShaderMaterial>();
@@ -246,8 +242,9 @@ export function InstancedBuildingRenderer({
         >
           {Array.from(chunk.batches.entries()).map(([arch, instances]) => {
             if (instances.length === 0) return null;
-            const geo = arch === 'SRV_WATER' || arch === 'SRV_POWER' ? baseGeometries.cylinder : baseGeometries.box;
+            const geo = buildingGeometries.get(arch);
             const mat = materials.get(arch);
+            if (!geo || !mat) return null;
             return (
               <InstancedBuildingBatch
                 key={arch}
@@ -285,16 +282,14 @@ const InstancedBuildingBatch = React.memo(({
     const statusArray = new Float32Array(instances.length * 2);
 
     instances.forEach((inst, i) => {
-      const h = architecture.includes('HIGHRISE') || architecture.includes('SKYSCRAPER') ? 4.5 + inst.variant * 1.5 :
-                architecture.includes('TOWER') || architecture.includes('HIGHTECH') ? 3.0 + inst.variant * 1.0 :
-                architecture.includes('APARTMENT') || architecture.includes('FACTORY') ? 1.8 :
-                1.0 + inst.variant * 0.2;
-
-      dummy.position.set(inst.worldX, inst.elevation + h / 2, inst.worldZ);
+      // Base resting at ground level (elevation)
+      dummy.position.set(inst.worldX, inst.elevation, inst.worldZ);
       
       const widthScale = (inst.footprintW * TILE_SIZE) / TILE_SIZE;
       const depthScale = (inst.footprintL * TILE_SIZE) / TILE_SIZE;
-      dummy.scale.set(widthScale, h, depthScale);
+      const heightScale = 1.0 + inst.variant * 0.06;
+
+      dummy.scale.set(widthScale, heightScale, depthScale);
       
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);

@@ -141,4 +141,59 @@ export const GAME_CONFIG = {
   },
   
   REGION_UNLOCK_COST: 15000,
+
+  // Service Budgets System (50% to 150%)
+  DEFAULT_SERVICE_BUDGETS: {
+    roads: 100,
+    power: 100,
+    water: 100,
+    police: 100,
+    fire: 100,
+    health: 100,
+    education: 100,
+    waste: 100,
+    parks: 100,
+  },
+
+  // Credit Rating & Debt System
+  CREDIT_RATINGS: {
+    AAA: { label: 'Prime (AAA)', dailyInterestRate: 0.003, maxBorrowMultiplier: 3.5, minDeficitDays: 0 },
+    AA: { label: 'High Grade (AA)', dailyInterestRate: 0.005, maxBorrowMultiplier: 2.8, minDeficitDays: 3 },
+    A: { label: 'Upper Medium (A)', dailyInterestRate: 0.007, maxBorrowMultiplier: 2.2, minDeficitDays: 6 },
+    BBB: { label: 'Lower Medium (BBB)', dailyInterestRate: 0.010, maxBorrowMultiplier: 1.6, minDeficitDays: 9 },
+    BB: { label: 'Speculative (BB)', dailyInterestRate: 0.015, maxBorrowMultiplier: 1.0, minDeficitDays: 13 },
+    C: { label: 'Vulnerable (C)', dailyInterestRate: 0.022, maxBorrowMultiplier: 0.5, minDeficitDays: 18 },
+    D: { label: 'Default / Insolvent (D)', dailyInterestRate: 0.030, maxBorrowMultiplier: 0.0, minDeficitDays: 24 },
+  },
+
+  LOAN_PRESETS: [
+    {
+      id: 'small_note',
+      name: 'Short-term Municipal Note',
+      amount: 5000,
+      termDays: 20,
+      description: 'Quick liquidity injection for immediate city infrastructure needs.',
+    },
+    {
+      id: 'medium_bond',
+      name: 'Municipal Revenue Bond',
+      amount: 15000,
+      termDays: 35,
+      description: 'Capital bond for utility expansions and district developments.',
+    },
+    {
+      id: 'large_bond',
+      name: 'Metropolitan General Obligation Bond',
+      amount: 40000,
+      termDays: 50,
+      description: 'Large-scale financing for major transit networks and megacity projects.',
+    },
+  ],
+
+  // Deficit, Overdraft & Crisis Balancing
+  DEFICIT_PENALTY_DAILY_RATE: 0.02, // 2% daily overdraft surcharge on negative treasury
+  CRISIS_TRIGGER_DEFICIT_DAYS: 5,   // Days in deficit before crisis mode activates
+  CRISIS_STRIKE_DAYS: 10,           // Days in deficit before public sector strikes start
+  CRISIS_HAPPINESS_PENALTY: 20,     // Happiness drop during prolonged fiscal crisis
+  CRISIS_TAX_EVASION_PENALTY: 0.25, // 25% tax revenue loss due to economic disruption in crisis
 };

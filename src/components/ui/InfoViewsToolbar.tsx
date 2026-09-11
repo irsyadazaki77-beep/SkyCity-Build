@@ -31,8 +31,9 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay }: InfoViewsTo
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] left-[calc(env(safe-area-inset-left,0px)+0.75rem)] z-35">
         <button
           onClick={() => setIsOpen(true)}
-          className="p-2.5 sm:p-3 bg-[#0f172a]/95 backdrop-blur-md border border-white/10 rounded-full shadow-lg text-gray-300 hover:text-white transition-all hover:scale-105 min-h-[40px] min-w-[40px] sm:min-h-[44px] sm:min-w-[44px] flex items-center justify-center"
+          className="p-2.5 sm:p-3 bg-[#0f172a]/95 backdrop-blur-md border border-white/10 rounded-full shadow-lg text-gray-300 hover:text-white transition-all hover:scale-105 min-h-[44px] min-w-[44px] flex items-center justify-center"
           title="Info Views"
+          aria-label="Open Info Views"
         >
           <Eye size={18} className="sm:w-5 sm:h-5" />
         </button>
@@ -45,12 +46,13 @@ export function InfoViewsToolbar({ activeOverlay, onSelectOverlay }: InfoViewsTo
     return (
       <button
         onClick={() => onSelectOverlay(isActive ? 'NONE' : mode)}
-        className={`w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-xl transition-all ${
+        className={`min-h-[44px] min-w-[44px] w-full p-2 flex items-center justify-center rounded-xl transition-all ${
           isActive
             ? `${colorClass} shadow-inner`
             : 'text-gray-400 hover:bg-white/5 hover:text-white'
         }`}
         title={label}
+        aria-label={label}
       >
         {icon}
       </button>

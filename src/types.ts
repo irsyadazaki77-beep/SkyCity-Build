@@ -71,6 +71,11 @@ export interface TileData {
   productivity: number; // 0 to 100
   abandoned: boolean;   // if utilities or road access is missing for a long time
   
+  // Logistics & Supply Chain Fields
+  goodsStock?: number;            // 0 to 100: Commercial goods inventory / industrial raw storage
+  logisticsSatisfaction?: number; // 0 to 100: Delivery reliability & supply chain health
+  commuteTime?: number;           // Commute duration in ticks/minutes for workers
+  
   // Service coverage indicators
   fireCovered?: boolean;
   policeCovered?: boolean;
@@ -101,6 +106,47 @@ export interface HistoryRecord {
   income: number;
   expenses: number;
   population: number;
+}
+
+// -------------------------------------------------------------
+// Financial, Budget & Debt System Types
+// -------------------------------------------------------------
+export type CreditRating = 'AAA' | 'AA' | 'A' | 'BBB' | 'BB' | 'C' | 'D';
+
+export interface ServiceBudgets {
+  roads: number;      // 50% to 150% (default 100)
+  power: number;      // 50% to 150% (default 100)
+  water: number;      // 50% to 150% (default 100)
+  police: number;     // 50% to 150% (default 100)
+  fire: number;       // 50% to 150% (default 100)
+  health: number;     // 50% to 150% (default 100)
+  education: number;  // 50% to 150% (default 100)
+  waste: number;      // 50% to 150% (default 100)
+  parks: number;      // 50% to 150% (default 100)
+}
+
+export interface CityLoan {
+  id: string;
+  name: string;
+  principal: number;          // Remaining principal owed
+  initialAmount: number;      // Initial loan amount
+  dailyInterestRate: number;  // e.g. 0.005 (0.5% / day)
+  remainingDays: number;      // Days left in term
+  dailyPayment: number;       // Principal payment + interest
+}
+
+export interface FiscalCrisisState {
+  isInCrisis: boolean;
+  consecutiveDeficitDays: number;
+  creditRating: CreditRating;
+  borrowingLimit: number;
+  strikingSectors: string[];
+  daysInCrisis?: number;
+  severity?: number;
+  emergencyBailoutUsed?: boolean;
+  dailyInterestExpense?: number;
+  deficitPenaltyExpense?: number;
+  isCrisis?: boolean;
 }
 
 // -------------------------------------------------------------
@@ -257,13 +303,26 @@ export interface CityState {
   desirability: number;        
   averageCommuteTime: number;  // Traffic 2.0 commute metric in minutes/ticks
   congestionIndex: number;     // Traffic 2.0 network congestion ratio (%)        
+  logisticsEfficiency?: number; // Logistics delivery fulfillment score (%)
+  goodsSupplyIndex?: number;    // Commercial goods stock satisfaction score (%)
 
   // Economy & Tax System 3.0
   residentialTaxRate: number;  // 1% to 20% (default 9%)
   commercialTaxRate: number;   // 1% to 20% (default 9%)
   industrialTaxRate: number;   // 1% to 20% (default 9%)
+  serviceBudgets?: ServiceBudgets; // Service funding % (50% to 150%)
   history: HistoryRecord[];    // last 10 ticks history
-  cityLoans?: { principal: number; interestRate: number; remainingDays: number }[];
+  cityLoans?: CityLoan[];
+  creditRating?: CreditRating;
+  fiscalCrisis?: FiscalCrisisState;
+  consecutiveDeficitDays?: number;
+  totalDebt?: number;
+  borrowingCapacity?: number;
+  dailyDebtService?: number;
+  debtServiceExpense?: number;
+  roadCondition?: number;      // 0 to 100%
+  roadConditionAverage?: number;
+  taxEfficiency?: number;
 
   // City Services & Utilities 2.0
   happiness: number;           // 0 to 100% composite score
@@ -365,6 +424,10 @@ export interface CompactTileUpdate {
   jobs?: number;
   abandoned?: boolean;
   traffic?: number;
+  productivity?: number;
+  goodsStock?: number;
+  logisticsSatisfaction?: number;
+  commuteTime?: number;
   landValue?: number;
   pollution?: number;
   noise?: number;
@@ -383,6 +446,9 @@ export type SimulationCommand =
   | { type: 'BULLDOZE'; payload: { tiles: [number, number][] } }
   | { type: 'TERRAFORM'; payload: { tiles: [number, number][]; tool: 'RAISE_TERRAIN' | 'LOWER_TERRAIN' | 'LEVEL_TERRAIN' | 'SMOOTH_TERRAIN'; centerElevation?: number } }
   | { type: 'SET_TAX'; payload: SetTaxPayload }
+  | { type: 'SET_BUDGET'; payload: { sector?: keyof ServiceBudgets; value?: number; budgets?: Partial<ServiceBudgets> } }
+  | { type: 'TAKE_LOAN'; payload: { amount: number; termDays: number; name?: string } }
+  | { type: 'REPAY_LOAN'; payload: { loanId: string } }
   | { type: 'SET_POLICY'; payload: { policyId: string; active: boolean } }
   | { type: 'UNLOCK_REGION'; payload: { rx: number; ry: number } }
   | { type: 'UNLOCK_TECH'; payload: { techId: string } }

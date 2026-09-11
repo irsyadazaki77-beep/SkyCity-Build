@@ -27,7 +27,27 @@ export class AuthoritativeSimulation {
   private commandCounter: number = 0;
 
   constructor(initialState: CityState) {
-    this.state = initialState;
+    this.state = {
+      ...initialState,
+      serviceBudgets: initialState.serviceBudgets || { ...GAME_CONFIG.DEFAULT_SERVICE_BUDGETS },
+      cityLoans: initialState.cityLoans || [],
+      creditRating: initialState.creditRating || 'AAA',
+      fiscalCrisis: initialState.fiscalCrisis || {
+        isInCrisis: false,
+        isCrisis: false,
+        daysInCrisis: 0,
+        severity: 0,
+        consecutiveDeficitDays: 0,
+        creditRating: 'AAA',
+        borrowingLimit: 20000,
+        strikingSectors: [],
+      },
+      consecutiveDeficitDays: initialState.consecutiveDeficitDays || 0,
+      totalDebt: initialState.totalDebt || 0,
+      borrowingCapacity: initialState.borrowingCapacity ?? 20000,
+      dailyDebtService: initialState.dailyDebtService || 0,
+      roadConditionAverage: initialState.roadConditionAverage ?? 100,
+    };
     this.engine = new SimulationEngine();
     const width = initialState.grid[0]?.length || 60;
     const height = initialState.grid.length || 60;
@@ -516,6 +536,97 @@ export class AuthoritativeSimulation {
         break;
       }
 
+      case 'SET_BUDGET': {
+        const payload = cmd.payload as { sector: keyof import('../../types').ServiceBudgets; percentage: number };
+        if (payload?.sector && typeof payload.percentage === 'number') {
+          const currentBudgets = this.state.serviceBudgets || { ...GAME_CONFIG.DEFAULT_SERVICE_BUDGETS };
+          this.state.serviceBudgets = {
+            ...currentBudgets,
+            [payload.sector]: Math.max(50, Math.min(150, Math.round(payload.percentage))),
+          };
+          this.revisions.simulationStatsRevision++;
+          this.stateVersion++;
+        }
+        break;
+      }
+
+      case 'TAKE_LOAN': {
+        const payload = cmd.payload as {
+          presetId?: string;
+          amount?: number;
+          durationDays?: number;
+          dailyInterestRate?: number;
+        };
+
+        let amount = payload.amount || 5000;
+        let termDays = payload.durationDays || 30;
+        let loanName = 'Municipal Bond';
+
+        if (payload.presetId) {
+          const preset = GAME_CONFIG.LOAN_PRESETS.find((p) => p.id === payload.presetId);
+          if (preset) {
+            amount = preset.amount;
+            termDays = preset.termDays;
+            loanName = preset.name;
+          }
+        }
+
+        const rating = this.state.creditRating || 'AAA';
+        const ratingConfig = GAME_CONFIG.CREDIT_RATINGS[rating as keyof typeof GAME_CONFIG.CREDIT_RATINGS] || GAME_CONFIG.CREDIT_RATINGS.AAA;
+        const totalDebt = this.state.totalDebt || 0;
+        const maxCapacity = Math.max(5000, (this.state.population || 0) * 40 + (this.state.income || 0) * 15) * ratingConfig.maxBorrowMultiplier;
+
+        if (totalDebt + amount > maxCapacity && rating === 'D') {
+          return fail('CREDIT_LIMIT_EXCEEDED');
+        }
+
+        const effectiveInterestRate = payload.dailyInterestRate || ratingConfig.dailyInterestRate;
+        const totalInterest = amount * effectiveInterestRate * termDays;
+        const dailyPayment = Math.ceil((amount + totalInterest) / termDays);
+
+        const newLoan: import('../../types').CityLoan = {
+          id: `loan_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          name: loanName,
+          principal: amount,
+          initialAmount: amount,
+          dailyInterestRate: effectiveInterestRate,
+          remainingDays: termDays,
+          dailyPayment,
+        };
+
+        this.state.cityLoans = [...(this.state.cityLoans || []), newLoan];
+        this.state.money += amount;
+        this.state.totalDebt = (this.state.totalDebt || 0) + amount;
+        this.state.dailyDebtService = (this.state.dailyDebtService || 0) + dailyPayment;
+        this.revisions.simulationStatsRevision++;
+        this.stateVersion++;
+        break;
+      }
+
+      case 'REPAY_LOAN': {
+        const { loanId } = cmd.payload as { loanId: string };
+        const currentLoans = this.state.cityLoans || [];
+        const loanIndex = currentLoans.findIndex((l) => l.id === loanId);
+        if (loanIndex === -1) {
+          return fail('INVALID_COMMAND');
+        }
+
+        const loan = currentLoans[loanIndex];
+        const payoffAmount = loan.principal;
+
+        if (this.state.money < payoffAmount) {
+          return fail('INSUFFICIENT_FUNDS');
+        }
+
+        this.state.money -= payoffAmount;
+        this.state.cityLoans = currentLoans.filter((l) => l.id !== loanId);
+        this.state.totalDebt = Math.max(0, (this.state.totalDebt || 0) - payoffAmount);
+        this.state.dailyDebtService = Math.max(0, (this.state.dailyDebtService || 0) - loan.dailyPayment);
+        this.revisions.simulationStatsRevision++;
+        this.stateVersion++;
+        break;
+      }
+
       case 'UNLOCK_TECH': {
         const { techId } = cmd.payload as { techId: string };
         const current = this.state.unlockedUpgrades || [];
@@ -629,17 +740,34 @@ export class AuthoritativeSimulation {
     const height = grid.length;
     const width = grid[0]?.length || 0;
 
-    // Snapshot buildings state before tick to detect building evolution / abandonment
-    const buildingPrevState = new Map<string, { level: number; abandoned: boolean; powered: boolean; watered: boolean }>();
+    // Snapshot buildings & roads state before tick to detect building evolution / abandonment / occupancy / traffic / logistics changes
+    const buildingPrevState = new Map<string, {
+      level: number;
+      abandoned: boolean;
+      powered: boolean;
+      watered: boolean;
+      population: number;
+      jobs: number;
+      traffic: number;
+      productivity: number;
+      goodsStock: number;
+      logisticsSatisfaction: number;
+    }>();
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const tile = grid[y][x];
-        if (tile.type !== TileType.EMPTY && tile.type !== TileType.ROAD) {
+        if (tile.type !== TileType.EMPTY) {
           buildingPrevState.set(`${x},${y}`, {
             level: tile.level || 1,
             abandoned: !!tile.abandoned,
             powered: !!tile.powered,
             watered: !!tile.watered,
+            population: tile.population || 0,
+            jobs: tile.jobs || 0,
+            traffic: tile.traffic || 0,
+            productivity: tile.productivity ?? 100,
+            goodsStock: tile.goodsStock ?? 100,
+            logisticsSatisfaction: tile.logisticsSatisfaction ?? 100,
           });
         }
       }
@@ -660,8 +788,18 @@ export class AuthoritativeSimulation {
         const prevB = buildingPrevState.get(key);
 
         if (prevB) {
-          // Check if building evolved level or abandonment status
-          if (prevB.level !== (tile.level || 1) || prevB.abandoned !== !!tile.abandoned) {
+          const levelChanged = prevB.level !== (tile.level || 1);
+          const abandonChanged = prevB.abandoned !== !!tile.abandoned;
+          const powerChanged = prevB.powered !== !!tile.powered;
+          const waterChanged = prevB.watered !== !!tile.watered;
+          const popChanged = prevB.population !== (tile.population || 0);
+          const jobsChanged = prevB.jobs !== (tile.jobs || 0);
+          const trafficChanged = Math.abs(prevB.traffic - (tile.traffic || 0)) >= 1;
+          const prodChanged = Math.abs(prevB.productivity - (tile.productivity ?? 100)) >= 2;
+          const goodsChanged = Math.abs(prevB.goodsStock - (tile.goodsStock ?? 100)) >= 2;
+          const logSatChanged = Math.abs(prevB.logisticsSatisfaction - (tile.logisticsSatisfaction ?? 100)) >= 2;
+
+          if (levelChanged || abandonChanged) {
             buildingChanged = true;
             this.chunkManager.markBuildingDirty(x, y);
             changedTiles.push({
@@ -674,8 +812,22 @@ export class AuthoritativeSimulation {
               watered: tile.watered,
               population: tile.population,
               jobs: tile.jobs,
+              traffic: tile.traffic,
+              productivity: tile.productivity,
+              goodsStock: tile.goodsStock,
+              logisticsSatisfaction: tile.logisticsSatisfaction,
+              commuteTime: tile.commuteTime,
             });
-          } else if (prevB.powered !== !!tile.powered || prevB.watered !== !!tile.watered) {
+          } else if (
+            powerChanged ||
+            waterChanged ||
+            popChanged ||
+            jobsChanged ||
+            trafficChanged ||
+            prodChanged ||
+            goodsChanged ||
+            logSatChanged
+          ) {
             changedTiles.push({
               x,
               y,
@@ -683,6 +835,11 @@ export class AuthoritativeSimulation {
               watered: tile.watered,
               population: tile.population,
               jobs: tile.jobs,
+              traffic: tile.traffic,
+              productivity: tile.productivity,
+              goodsStock: tile.goodsStock,
+              logisticsSatisfaction: tile.logisticsSatisfaction,
+              commuteTime: tile.commuteTime,
             });
           }
         }
@@ -734,6 +891,13 @@ export class AuthoritativeSimulation {
    * Generate vehicle and pedestrian paths for traffic rendering
    */
   private generateAgents(): void {
+    const trafficResult = this.engine.getLastTrafficResult();
+    if (trafficResult && trafficResult.activeVehicles && trafficResult.activeVehicles.length > 0) {
+      this.vehicles = trafficResult.activeVehicles;
+      this.pedestrians = trafficResult.activePedestrians || [];
+      return;
+    }
+
     const grid = this.state.grid;
     const height = grid.length;
     const width = grid[0]?.length || 0;

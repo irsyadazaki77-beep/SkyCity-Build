@@ -180,84 +180,192 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high', revision = 0 
 
   // Archetype Geometries & Materials
   const pineGeo = useMemo(() => {
-    const geo = new THREE.ConeGeometry(0.3, 1.1, 6);
-    geo.translate(0, 0.55, 0);
-    return geo;
+    // 3-tiered stylized pine tree with wooden trunk
+    const trunk = new THREE.CylinderGeometry(0.04, 0.06, 0.35, 6);
+    trunk.translate(0, 0.175, 0);
+
+    const cone1 = new THREE.ConeGeometry(0.38, 0.45, 6);
+    cone1.translate(0, 0.45, 0);
+
+    const cone2 = new THREE.ConeGeometry(0.30, 0.40, 6);
+    cone2.translate(0, 0.70, 0);
+
+    const cone3 = new THREE.ConeGeometry(0.20, 0.35, 6);
+    cone3.translate(0, 0.95, 0);
+
+    // Merge into single buffer geometry
+    const geometries = [trunk, cone1, cone2, cone3];
+    let totalCount = 0;
+    geometries.forEach(g => { totalCount += g.attributes.position.count; });
+    const posArray = new Float32Array(totalCount * 3);
+    const normArray = new Float32Array(totalCount * 3);
+
+    let offset = 0;
+    geometries.forEach(g => {
+      const pos = g.attributes.position;
+      const norm = g.attributes.normal;
+      for (let i = 0; i < pos.count; i++) {
+        posArray[(offset + i) * 3 + 0] = pos.getX(i);
+        posArray[(offset + i) * 3 + 1] = pos.getY(i);
+        posArray[(offset + i) * 3 + 2] = pos.getZ(i);
+        normArray[(offset + i) * 3 + 0] = norm.getX(i);
+        normArray[(offset + i) * 3 + 1] = norm.getY(i);
+        normArray[(offset + i) * 3 + 2] = norm.getZ(i);
+      }
+      offset += pos.count;
+    });
+
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    merged.setAttribute('normal', new THREE.BufferAttribute(normArray, 3));
+    return merged;
   }, []);
 
   const oakGeo = useMemo(() => {
-    const geo = new THREE.IcosahedronGeometry(0.4, 1);
-    geo.translate(0, 0.5, 0);
-    return geo;
+    // Broadleaf stylized oak with trunk and 3 organic foliage clusters
+    const trunk = new THREE.CylinderGeometry(0.06, 0.08, 0.45, 6);
+    trunk.translate(0, 0.22, 0);
+
+    const cluster1 = new THREE.IcosahedronGeometry(0.32, 1);
+    cluster1.translate(0, 0.58, 0);
+
+    const cluster2 = new THREE.IcosahedronGeometry(0.25, 1);
+    cluster2.translate(0.12, 0.72, 0.08);
+
+    const cluster3 = new THREE.IcosahedronGeometry(0.22, 1);
+    cluster3.translate(-0.10, 0.68, -0.06);
+
+    const geometries = [trunk, cluster1, cluster2, cluster3];
+    let totalCount = 0;
+    geometries.forEach(g => { totalCount += g.attributes.position.count; });
+    const posArray = new Float32Array(totalCount * 3);
+    const normArray = new Float32Array(totalCount * 3);
+
+    let offset = 0;
+    geometries.forEach(g => {
+      const pos = g.attributes.position;
+      const norm = g.attributes.normal;
+      for (let i = 0; i < pos.count; i++) {
+        posArray[(offset + i) * 3 + 0] = pos.getX(i);
+        posArray[(offset + i) * 3 + 1] = pos.getY(i);
+        posArray[(offset + i) * 3 + 2] = pos.getZ(i);
+        normArray[(offset + i) * 3 + 0] = norm.getX(i);
+        normArray[(offset + i) * 3 + 1] = norm.getY(i);
+        normArray[(offset + i) * 3 + 2] = norm.getZ(i);
+      }
+      offset += pos.count;
+    });
+
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    merged.setAttribute('normal', new THREE.BufferAttribute(normArray, 3));
+    return merged;
   }, []);
 
   const bushGeo = useMemo(() => {
-    const geo = new THREE.IcosahedronGeometry(0.25, 0);
-    geo.translate(0, 0.1, 0);
+    const geo = new THREE.IcosahedronGeometry(0.24, 1);
+    geo.translate(0, 0.14, 0);
     return geo;
   }, []);
 
   const rockGeo = useMemo(() => {
-    const geo = new THREE.DodecahedronGeometry(0.6, 0);
+    const geo = new THREE.DodecahedronGeometry(0.5, 0);
     const pos = geo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
-      pos.setY(i, pos.getY(i) * 0.6);
+      pos.setY(i, pos.getY(i) * 0.55);
     }
     geo.computeVertexNormals();
     return geo;
   }, []);
 
-  // Street Lamp Model (Pole + Overhang + Emissive Bulb)
+  // Street Lamp Model (Pedestal + Pole + Angled Arm + Head Fixture)
   const lampPoleGeo = useMemo(() => {
-    const pole = new THREE.CylinderGeometry(0.02, 0.03, 0.6, 6);
-    pole.translate(0, 0.3, 0);
+    const pedestal = new THREE.CylinderGeometry(0.04, 0.05, 0.08, 8);
+    pedestal.translate(0, 0.04, 0);
 
-    const arm = new THREE.BoxGeometry(0.15, 0.02, 0.02);
-    arm.translate(0.06, 0.58, 0);
+    const pole = new THREE.CylinderGeometry(0.018, 0.024, 0.72, 8);
+    pole.translate(0, 0.40, 0);
 
-    // Merge pole + arm
-    const merged = new THREE.BufferGeometry();
-    const posP = pole.attributes.position;
-    const posA = arm.attributes.position;
-    const totalCount = posP.count + posA.count;
+    const arm = new THREE.BoxGeometry(0.20, 0.02, 0.02);
+    arm.rotateZ(-0.15);
+    arm.translate(0.09, 0.74, 0);
+
+    const headFrame = new THREE.BoxGeometry(0.10, 0.03, 0.06);
+    headFrame.translate(0.18, 0.72, 0);
+
+    // Merge pole components
+    const geoms = [pedestal, pole, arm, headFrame];
+    let totalCount = 0;
+    geoms.forEach(g => totalCount += g.attributes.position.count);
     const posArray = new Float32Array(totalCount * 3);
 
-    for (let i = 0; i < posP.count; i++) {
-      posArray[i * 3 + 0] = posP.getX(i);
-      posArray[i * 3 + 1] = posP.getY(i);
-      posArray[i * 3 + 2] = posP.getZ(i);
-    }
-    for (let i = 0; i < posA.count; i++) {
-      posArray[(posP.count + i) * 3 + 0] = posA.getX(i);
-      posArray[(posP.count + i) * 3 + 1] = posA.getY(i);
-      posArray[(posP.count + i) * 3 + 2] = posA.getZ(i);
-    }
+    let offset = 0;
+    geoms.forEach(g => {
+      const pos = g.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        posArray[(offset + i) * 3 + 0] = pos.getX(i);
+        posArray[(offset + i) * 3 + 1] = pos.getY(i);
+        posArray[(offset + i) * 3 + 2] = pos.getZ(i);
+      }
+      offset += pos.count;
+    });
+
+    const merged = new THREE.BufferGeometry();
     merged.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
     merged.computeVertexNormals();
     return merged;
   }, []);
 
   const lampBulbGeo = useMemo(() => {
-    const bulb = new THREE.BoxGeometry(0.05, 0.03, 0.05);
-    bulb.translate(0.12, 0.56, 0);
+    const bulb = new THREE.BoxGeometry(0.08, 0.025, 0.05);
+    bulb.translate(0.18, 0.705, 0);
     return bulb;
   }, []);
 
   const benchGeo = useMemo(() => {
-    const b = new THREE.BoxGeometry(0.25, 0.08, 0.1);
-    b.translate(0, 0.04, 0);
-    return b;
+    const seat = new THREE.BoxGeometry(0.32, 0.03, 0.12);
+    seat.translate(0, 0.12, 0);
+
+    const backrest = new THREE.BoxGeometry(0.32, 0.12, 0.02);
+    backrest.translate(0, 0.20, -0.05);
+
+    const legL = new THREE.BoxGeometry(0.03, 0.12, 0.10);
+    legL.translate(-0.13, 0.06, 0);
+
+    const legR = new THREE.BoxGeometry(0.03, 0.12, 0.10);
+    legR.translate(0.13, 0.06, 0);
+
+    const geoms = [seat, backrest, legL, legR];
+    let totalCount = 0;
+    geoms.forEach(g => totalCount += g.attributes.position.count);
+    const posArray = new Float32Array(totalCount * 3);
+
+    let offset = 0;
+    geoms.forEach(g => {
+      const pos = g.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        posArray[(offset + i) * 3 + 0] = pos.getX(i);
+        posArray[(offset + i) * 3 + 1] = pos.getY(i);
+        posArray[(offset + i) * 3 + 2] = pos.getZ(i);
+      }
+      offset += pos.count;
+    });
+
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+    merged.computeVertexNormals();
+    return merged;
   }, []);
 
   // Custom Shader Materials with Wind Sway & Night Emissive Light
-  const pineMat = useMemo(() => TreeMaterial('#14532d', 0.8), []);
-  const oakMat = useMemo(() => TreeMaterial('#166534', 0.75), []);
-  const bushMat = useMemo(() => TreeMaterial('#15803d', 0.8), []);
-  const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#4b5563', roughness: 0.9 }), []);
+  const pineMat = useMemo(() => TreeMaterial('#1b4d24', 0.8), []);
+  const oakMat = useMemo(() => TreeMaterial('#2d5e2e', 0.75), []);
+  const bushMat = useMemo(() => TreeMaterial('#3b7034', 0.8), []);
+  const rockMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.88 }), []);
 
-  const lampPoleMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.5, metalness: 0.8 }), []);
+  const lampPoleMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.45, metalness: 0.85 }), []);
 
-  // Emissive Lamp Shader Material (Glows softly at night for bloom without point lights)
+  // Emissive Lamp Shader Material (Glows softly at night for bloom)
   const lampBulbMat = useMemo(() => {
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -272,8 +380,8 @@ export function EnvironmentProps({ grid, graphicsQuality = 'high', revision = 0 
       fragmentShader: `
         uniform float uNightFactor;
         void main() {
-          vec3 offColor = vec3(0.8, 0.8, 0.7);
-          vec3 glowColor = vec3(1.0, 0.92, 0.65) * 2.8;
+          vec3 offColor = vec3(0.85, 0.85, 0.80);
+          vec3 glowColor = vec3(1.0, 0.94, 0.72) * 3.0;
           vec3 finalColor = mix(offColor, glowColor, uNightFactor);
           gl_FragColor = vec4(finalColor, 1.0);
         }

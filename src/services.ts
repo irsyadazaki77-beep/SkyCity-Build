@@ -1,4 +1,4 @@
-import { TileData, TileType } from './types';
+import { TileData, TileType, ServiceBudgets } from './types';
 import { GAME_CONFIG } from './config';
 import { RoadGraph, getAdjacentRoadNodeKey } from './core/simulation/TrafficSubsystem';
 
@@ -190,7 +190,7 @@ export function simulateUtilityNetworks(
 
 /**
  * City Services Network Engine (Fire, Police, Healthcare, Education, Waste)
- * Uses the road graph to simulate service accessibility, capacity, and reach.
+ * Uses the road graph to simulate service accessibility, distance attenuation, and capacity constraints.
  */
 export function simulateCityServices(
   grid: TileData[][],
@@ -200,10 +200,30 @@ export function simulateCityServices(
   desirability: number,
   averageCommuteTime: number,
   residentialTaxRate: number,
-  unlockedUpgrades: string[]
+  unlockedUpgrades: string[],
+  serviceBudgets?: ServiceBudgets,
+  strikingSectors: string[] = [],
+  isFiscalCrisis = false
 ): CityServicesResult {
   const height = grid.length;
   const width = grid[0].length;
+  const hasU = (id: string) => unlockedUpgrades.includes(id);
+
+  const striking = new Set(strikingSectors);
+
+  // Department Budget Multipliers (50% to 150%)
+  const fireBudgetMult = (serviceBudgets?.fire ?? 100) / 100;
+  const policeBudgetMult = (serviceBudgets?.police ?? 100) / 100;
+  const healthBudgetMult = (serviceBudgets?.health ?? 100) / 100;
+  const eduBudgetMult = (serviceBudgets?.education ?? 100) / 100;
+  const wasteBudgetMult = (serviceBudgets?.waste ?? 100) / 100;
+  const parksBudgetMult = (serviceBudgets?.parks ?? 100) / 100;
+
+  // Upgrade bonuses
+  const aiCapacityMult = hasU('ai_management') ? 1.25 : 1.0;
+  const sensorRangeBonus = hasU('smart_sensors') ? 2 : 0;
+  const transitRangeBonus = (hasU('bus_network') ? 2 : 0) + (hasU('tram_system') ? 2 : 0);
+  const recyclingCapMult = hasU('recycling') ? 1.35 : 1.0;
 
   // Reset coverage tags
   for (let y = 0; y < height; y++) {
@@ -224,9 +244,14 @@ export function simulateCityServices(
     roadNodeKey: string;
     range: number;
     capacity: number;
+    remainingCapacity: number;
   }
 
-  const facilities: ServiceFacility[] = [];
+  const fireFacilities: ServiceFacility[] = [];
+  const policeFacilities: ServiceFacility[] = [];
+  const clinicFacilities: ServiceFacility[] = [];
+  const schoolFacilities: ServiceFacility[] = [];
+  const wasteFacilities: ServiceFacility[] = [];
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
@@ -236,106 +261,236 @@ export function simulateCityServices(
       if (!roadNodeKey || !tile.powered) continue;
 
       if (tile.type === TileType.FIRE_STATION) {
-        facilities.push({
+        const isStrike = striking.has('fire');
+        const cap = isStrike ? 30 : Math.round(GAME_CONFIG.CITY_SERVICES.FIRE_STATION.CAPACITY * aiCapacityMult * fireBudgetMult);
+        const range = isStrike ? 3 : Math.max(3, Math.round((GAME_CONFIG.CITY_SERVICES.FIRE_STATION.ROAD_RANGE + sensorRangeBonus) * Math.sqrt(fireBudgetMult)));
+        fireFacilities.push({
           type: tile.type,
           x,
           y,
           roadNodeKey,
-          range: GAME_CONFIG.CITY_SERVICES.FIRE_STATION.ROAD_RANGE,
-          capacity: GAME_CONFIG.CITY_SERVICES.FIRE_STATION.CAPACITY,
+          range,
+          capacity: cap,
+          remainingCapacity: cap,
         });
       } else if (tile.type === TileType.POLICE_STATION) {
-        facilities.push({
+        const isStrike = striking.has('police');
+        const cap = isStrike ? 30 : Math.round(GAME_CONFIG.CITY_SERVICES.POLICE_STATION.CAPACITY * aiCapacityMult * policeBudgetMult);
+        const range = isStrike ? 3 : Math.max(3, Math.round((GAME_CONFIG.CITY_SERVICES.POLICE_STATION.ROAD_RANGE + sensorRangeBonus) * Math.sqrt(policeBudgetMult)));
+        policeFacilities.push({
           type: tile.type,
           x,
           y,
           roadNodeKey,
-          range: GAME_CONFIG.CITY_SERVICES.POLICE_STATION.ROAD_RANGE,
-          capacity: GAME_CONFIG.CITY_SERVICES.POLICE_STATION.CAPACITY,
+          range,
+          capacity: cap,
+          remainingCapacity: cap,
         });
       } else if (tile.type === TileType.CLINIC) {
-        facilities.push({
+        const isStrike = striking.has('health');
+        const cap = isStrike ? 25 : Math.round(GAME_CONFIG.CITY_SERVICES.CLINIC.CAPACITY * aiCapacityMult * healthBudgetMult);
+        const range = isStrike ? 4 : Math.max(4, Math.round((GAME_CONFIG.CITY_SERVICES.CLINIC.ROAD_RANGE + sensorRangeBonus + transitRangeBonus) * Math.sqrt(healthBudgetMult)));
+        clinicFacilities.push({
           type: tile.type,
           x,
           y,
           roadNodeKey,
-          range: GAME_CONFIG.CITY_SERVICES.CLINIC.ROAD_RANGE,
-          capacity: GAME_CONFIG.CITY_SERVICES.CLINIC.CAPACITY,
+          range,
+          capacity: cap,
+          remainingCapacity: cap,
         });
       } else if (tile.type === TileType.SCHOOL) {
-        facilities.push({
+        const isStrike = striking.has('education');
+        const cap = isStrike ? 20 : Math.round(GAME_CONFIG.CITY_SERVICES.SCHOOL.CAPACITY * aiCapacityMult * eduBudgetMult);
+        const range = isStrike ? 4 : Math.max(4, Math.round((GAME_CONFIG.CITY_SERVICES.SCHOOL.ROAD_RANGE + sensorRangeBonus + transitRangeBonus) * Math.sqrt(eduBudgetMult)));
+        schoolFacilities.push({
           type: tile.type,
           x,
           y,
           roadNodeKey,
-          range: GAME_CONFIG.CITY_SERVICES.SCHOOL.ROAD_RANGE,
-          capacity: GAME_CONFIG.CITY_SERVICES.SCHOOL.CAPACITY,
+          range,
+          capacity: cap,
+          remainingCapacity: cap,
         });
       } else if (tile.type === TileType.WASTE_MANAGEMENT) {
-        facilities.push({
+        const isStrike = striking.has('waste');
+        const cap = isStrike ? 40 : Math.round(GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.CAPACITY * aiCapacityMult * recyclingCapMult * wasteBudgetMult);
+        const range = isStrike ? 4 : Math.max(4, Math.round((GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.ROAD_RANGE + sensorRangeBonus) * Math.sqrt(wasteBudgetMult)));
+        wasteFacilities.push({
           type: tile.type,
           x,
           y,
           roadNodeKey,
-          range: GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.ROAD_RANGE,
-          capacity: GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.CAPACITY,
+          range,
+          capacity: cap,
+          remainingCapacity: cap,
         });
       }
     }
   }
 
-  // Calculate road reach for each facility via Dijkstra/BFS
-  for (const facility of facilities) {
-    const reachableRoads = new Set<string>();
-    const distances = new Map<string, number>();
-    const queue: { key: string; dist: number }[] = [{ key: facility.roadNodeKey, dist: 0 }];
-    distances.set(facility.roadNodeKey, 0);
+  /**
+   * Helper to perform road Dijkstra / BFS for a set of facilities and allocate capacity to demanding tiles
+   */
+  function allocateService(
+    facilitiesList: ServiceFacility[],
+    isTarget: (t: TileData) => boolean,
+    getDemand: (t: TileData) => number,
+    applyCoverage: (t: TileData, covered: boolean, score: number) => void
+  ) {
+    if (facilitiesList.length === 0) return;
 
-    while (queue.length > 0) {
-      queue.sort((a, b) => a.dist - b.dist);
-      const { key, dist } = queue.shift()!;
-      reachableRoads.add(key);
+    // Collect all candidate target tiles with their closest road distance to any facility of this type
+    interface TargetCandidate {
+      tile: TileData;
+      x: number;
+      y: number;
+      minDist: number;
+      facilityIndex: number;
+      demand: number;
+    }
 
-      if (dist >= facility.range) continue;
+    const candidates: TargetCandidate[] = [];
+    const tileVisited = new Set<string>();
 
-      const node = roadGraph.nodes.get(key);
-      if (!node) continue;
+    for (let fIdx = 0; fIdx < facilitiesList.length; fIdx++) {
+      const fac = facilitiesList[fIdx];
+      const distances = new Map<string, number>();
+      const queue: { key: string; dist: number }[] = [{ key: fac.roadNodeKey, dist: 0 }];
+      distances.set(fac.roadNodeKey, 0);
 
-      for (const neighborKey of node.neighbors) {
-        const nextDist = dist + 1;
-        if (nextDist <= facility.range && (!distances.has(neighborKey) || nextDist < distances.get(neighborKey)!)) {
-          distances.set(neighborKey, nextDist);
-          queue.push({ key: neighborKey, dist: nextDist });
+      while (queue.length > 0) {
+        queue.sort((a, b) => a.dist - b.dist);
+        const { key, dist } = queue.shift()!;
+        if (dist >= fac.range) continue;
+
+        const node = roadGraph.nodes.get(key);
+        if (!node) continue;
+
+        for (const neighborKey of node.neighbors) {
+          const nextDist = dist + 1;
+          if (nextDist <= fac.range && (!distances.has(neighborKey) || nextDist < distances.get(neighborKey)!)) {
+            distances.set(neighborKey, nextDist);
+            queue.push({ key: neighborKey, dist: nextDist });
+          }
+        }
+      }
+
+      // Check all tiles adjacent to reachable roads
+      for (const [roadKey, roadDist] of distances.entries()) {
+        const roadNode = roadGraph.nodes.get(roadKey);
+        if (!roadNode) continue;
+
+        for (const [nx, ny] of getNeighbors(roadNode.x, roadNode.y, width, height)) {
+          const t = grid[ny][nx];
+          if (isTarget(t)) {
+            const tileKey = `${nx},${ny}`;
+            const demand = getDemand(t);
+            candidates.push({
+              tile: t,
+              x: nx,
+              y: ny,
+              minDist: roadDist,
+              facilityIndex: fIdx,
+              demand,
+            });
+          }
         }
       }
     }
 
-    // Tag adjacent zoned buildings touched by this covered road network
-    for (const roadKey of reachableRoads) {
-      const roadNode = roadGraph.nodes.get(roadKey);
-      if (!roadNode) continue;
+    // Sort candidates by road distance (closer tiles receive priority service)
+    candidates.sort((a, b) => a.minDist - b.minDist);
 
-      for (const [nx, ny] of getNeighbors(roadNode.x, roadNode.y, width, height)) {
-        const neighborTile = grid[ny][nx];
-        if (
-          neighborTile.type === TileType.RESIDENTIAL ||
-          neighborTile.type === TileType.COMMERCIAL ||
-          neighborTile.type === TileType.INDUSTRIAL ||
-          neighborTile.type === TileType.FIRE_STATION ||
-          neighborTile.type === TileType.POLICE_STATION ||
-          neighborTile.type === TileType.CLINIC ||
-          neighborTile.type === TileType.SCHOOL ||
-          neighborTile.type === TileType.WASTE_MANAGEMENT
-        ) {
-          if (facility.type === TileType.FIRE_STATION) neighborTile.fireCovered = true;
-          if (facility.type === TileType.POLICE_STATION) neighborTile.policeCovered = true;
-          if (facility.type === TileType.CLINIC) neighborTile.healthCovered = true;
-          if (facility.type === TileType.SCHOOL) neighborTile.schoolCovered = true;
-          if (facility.type === TileType.WASTE_MANAGEMENT) neighborTile.wasteCovered = true;
-        }
+    const servedTiles = new Set<string>();
+
+    for (const cand of candidates) {
+      const key = `${cand.x},${cand.y}`;
+      if (servedTiles.has(key)) continue;
+
+      const fac = facilitiesList[cand.facilityIndex];
+      const req = Math.max(1, cand.demand);
+
+      if (fac.remainingCapacity >= req) {
+        fac.remainingCapacity -= req;
+        servedTiles.add(key);
+        // Distance decay factor
+        const decay = Math.max(0.4, 1 - (cand.minDist / (fac.range + 1)) * 0.45);
+        applyCoverage(cand.tile, true, Math.round(decay * 100));
+      } else if (fac.remainingCapacity > 0) {
+        // Partial coverage for slightly overloaded facility
+        const partialRatio = fac.remainingCapacity / req;
+        fac.remainingCapacity = 0;
+        servedTiles.add(key);
+        const decay = Math.max(0.2, (1 - (cand.minDist / (fac.range + 1)) * 0.45) * partialRatio);
+        applyCoverage(cand.tile, partialRatio >= 0.6, Math.round(decay * 100));
       }
     }
   }
+
+  // 1. Allocate Fire Protection (covers all zoned buildings and utility facilities)
+  allocateService(
+    fireFacilities,
+    (t) => [
+      TileType.RESIDENTIAL,
+      TileType.COMMERCIAL,
+      TileType.INDUSTRIAL,
+      TileType.POWER_PLANT,
+      TileType.WATER_PUMP,
+      TileType.POLICE_STATION,
+      TileType.CLINIC,
+      TileType.SCHOOL,
+      TileType.WASTE_MANAGEMENT,
+    ].includes(t.type),
+    () => 1,
+    (t, covered) => {
+      t.fireCovered = covered;
+    }
+  );
+
+  // 2. Allocate Police Protection (covers Residential, Commercial, Industrial based on pop + jobs)
+  allocateService(
+    policeFacilities,
+    (t) => [TileType.RESIDENTIAL, TileType.COMMERCIAL, TileType.INDUSTRIAL].includes(t.type),
+    (t) => (t.type === TileType.RESIDENTIAL ? Math.max(1, t.population || 1) : Math.max(1, t.jobs || 1)),
+    (t, covered) => {
+      t.policeCovered = covered;
+    }
+  );
+
+  // 3. Allocate Healthcare (covers Residential population)
+  allocateService(
+    clinicFacilities,
+    (t) => t.type === TileType.RESIDENTIAL,
+    (t) => Math.max(1, t.population || 1),
+    (t, covered) => {
+      t.healthCovered = covered;
+    }
+  );
+
+  // 4. Allocate School / Education (covers Residential population)
+  allocateService(
+    schoolFacilities,
+    (t) => t.type === TileType.RESIDENTIAL,
+    (t) => Math.max(1, Math.round((t.population || 1) * 0.7)),
+    (t, covered) => {
+      t.schoolCovered = covered;
+    }
+  );
+
+  // 5. Allocate Waste Management (covers all zoned buildings based on tonnage produced)
+  allocateService(
+    wasteFacilities,
+    (t) => [TileType.RESIDENTIAL, TileType.COMMERCIAL, TileType.INDUSTRIAL].includes(t.type),
+    (t) => {
+      if (t.type === TileType.RESIDENTIAL) return Math.max(1, Math.round((t.population || 1) * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_POP_WASTE));
+      if (t.type === TileType.COMMERCIAL) return Math.max(1, Math.round((t.jobs || 1) * 0.5));
+      return Math.max(1, Math.round((t.jobs || 1) * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_IND_WASTE));
+    },
+    (t, covered) => {
+      t.wasteCovered = covered;
+    }
+  );
 
   // Calculate Aggregate Service Metrics
   let totalZonedBuildings = 0;
@@ -346,10 +501,8 @@ export function simulateCityServices(
   let wasteUnitsProduced = 0;
   let totalWasteCapacity = 0;
 
-  for (const facility of facilities) {
-    if (facility.type === TileType.WASTE_MANAGEMENT) {
-      totalWasteCapacity += facility.capacity;
-    }
+  for (const facility of wasteFacilities) {
+    totalWasteCapacity += facility.capacity;
   }
 
   for (let y = 0; y < height; y++) {
@@ -358,20 +511,20 @@ export function simulateCityServices(
       if (tile.type === TileType.RESIDENTIAL) {
         totalZonedBuildings++;
         if (tile.fireCovered) fireCoveredBuildings++;
-        if (tile.healthCovered) healthCoveredPop += tile.population;
-        if (tile.schoolCovered) schoolCoveredPop += tile.population;
-        if (tile.policeCovered) policeCoveredUnits += tile.population;
-        wasteUnitsProduced += tile.population * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_POP_WASTE;
+        if (tile.healthCovered) healthCoveredPop += (tile.population || 0);
+        if (tile.schoolCovered) schoolCoveredPop += (tile.population || 0);
+        if (tile.policeCovered) policeCoveredUnits += (tile.population || 0);
+        wasteUnitsProduced += (tile.population || 0) * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_POP_WASTE;
       } else if (tile.type === TileType.COMMERCIAL) {
         totalZonedBuildings++;
         if (tile.fireCovered) fireCoveredBuildings++;
-        if (tile.policeCovered) policeCoveredUnits += tile.jobs;
-        wasteUnitsProduced += tile.jobs * 0.5;
+        if (tile.policeCovered) policeCoveredUnits += (tile.jobs || 0);
+        wasteUnitsProduced += (tile.jobs || 0) * 0.5;
       } else if (tile.type === TileType.INDUSTRIAL) {
         totalZonedBuildings++;
         if (tile.fireCovered) fireCoveredBuildings++;
-        if (tile.policeCovered) policeCoveredUnits += tile.jobs;
-        wasteUnitsProduced += tile.jobs * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_IND_WASTE;
+        if (tile.policeCovered) policeCoveredUnits += (tile.jobs || 0);
+        wasteUnitsProduced += (tile.jobs || 0) * GAME_CONFIG.CITY_SERVICES.WASTE_MANAGEMENT.PER_IND_WASTE;
       }
     }
   }
@@ -381,11 +534,11 @@ export function simulateCityServices(
   // Compute coverage percentages
   const healthcareCoverage = totalPopulation > 0 
     ? Math.min(100, Math.round((healthCoveredPop / totalPopulation) * 100)) 
-    : (facilities.some(f => f.type === TileType.CLINIC) ? 100 : 0);
+    : (clinicFacilities.length > 0 ? 100 : 0);
 
   const educationCoverage = totalPopulation > 0 
     ? Math.min(100, Math.round((schoolCoveredPop / totalPopulation) * 100)) 
-    : (facilities.some(f => f.type === TileType.SCHOOL) ? 100 : 0);
+    : (schoolFacilities.length > 0 ? 100 : 0);
 
   const fireSafety = totalZonedBuildings > 0 
     ? Math.min(100, Math.round((fireCoveredBuildings / totalZonedBuildings) * 100)) 
@@ -393,10 +546,13 @@ export function simulateCityServices(
 
   const policeRatio = totalPopulation > 0 
     ? Math.min(1, policeCoveredUnits / totalPopulation) 
-    : (facilities.some(f => f.type === TileType.POLICE_STATION) ? 1 : 0);
+    : (policeFacilities.length > 0 ? 1 : 0);
   
   // Crime rate: base 35% without police, drops down to 5% with full police coverage
-  const crimeRate = Math.max(5, Math.min(80, Math.round(35 - policeRatio * 30)));
+  let crimeRate = Math.max(5, Math.min(80, Math.round(35 - policeRatio * 30)));
+  if (striking.has('police')) {
+    crimeRate = Math.min(95, crimeRate + 30);
+  }
 
   const wasteCoverage = wasteUnitsProduced > 0 
     ? Math.min(100, Math.round((totalWasteCapacity / wasteUnitsProduced) * 100)) 
@@ -411,9 +567,19 @@ export function simulateCityServices(
   happiness += (50 - crimeRate) * 0.2;
   happiness += (wasteCoverage - 50) * 0.15;
   
+  // Parks budget impact
+  happiness += (parksBudgetMult - 1.0) * 8;
+
+  // Fiscal Crisis Morale penalty
+  if (isFiscalCrisis) {
+    happiness -= GAME_CONFIG.CRISIS_HAPPINESS_PENALTY;
+  }
+  
   // Traffic & commute friction
   if (averageCommuteTime > 8) {
-    happiness -= Math.min(15, (averageCommuteTime - 8) * 1.5);
+    happiness -= Math.min(22, (averageCommuteTime - 8) * 1.8);
+  } else if (averageCommuteTime > 0 && averageCommuteTime <= 5) {
+    happiness += 5; // Fast, smooth commute bonus
   }
 
   // Tax friction
